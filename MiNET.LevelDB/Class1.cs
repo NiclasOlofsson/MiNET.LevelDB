@@ -1,8 +1,6 @@
-﻿using System;
-
-namespace MiNET.LevelDB
+﻿namespace MiNET.LevelDB
 {
-    public class Class1
-    {
-    }
+	public class Class1
+	{
+	}
 }
