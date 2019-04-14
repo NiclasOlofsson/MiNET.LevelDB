@@ -54,6 +54,19 @@ namespace MiNET.LevelDB
 			}
 			throw new Exception("last byte of variable length int has high bit set");
 		}
+
+		public static string ReadLengthPrefixedString(Stream seek)
+		{
+			return Encoding.UTF8.GetString(ReadLengthPrefixedBytes(seek));
+		}
+
+		public static byte[] ReadLengthPrefixedBytes(Stream seek)
+		{
+			ulong size = seek.ReadVarint();
+			byte[] buffer = new byte[size];
+			seek.Read(buffer, 0, buffer.Length);
+			return buffer;
+		}
 	}
 
 	public static class PrintHelpers
@@ -66,6 +79,43 @@ namespace MiNET.LevelDB
 		public static ulong ReadVarint(this Stream sliceInput)
 		{
 			return PrintUtils.ReadVarint(sliceInput);
+		}
+
+		public static string ReadLengthPrefixedString(this Stream seek)
+		{
+			return PrintUtils.ReadLengthPrefixedString(seek);
+		}
+
+		public static byte[] ReadLengthPrefixedBytes(this Stream seek)
+		{
+			return PrintUtils.ReadLengthPrefixedBytes(seek);
+		}
+	}
+
+	public class BytewiseComparator
+	{
+		public string Name { get; } = "leveldb.BytewiseComparator";
+
+		public int Compare(Span<byte> a, Span<byte> b)
+		{
+			if (a == b) return 0;
+
+			if (a.Length == b.Length && a.SequenceCompareTo(b) == 0) return 0;
+
+			var maxLen = Math.Min(a.Length, b.Length);
+			var result = a.Slice(0, maxLen).SequenceCompareTo(b.Slice(0, maxLen));
+			if (result != 0) return result > 0 ? 1 : -1;
+
+			result = a.Length - b.Length;
+			return result > 0 ? 1 : -1;
+		}
+
+		public void FindShortestSeparator(string start, Span<byte> limit)
+		{
+		}
+
+		public void FindShortSuccessor(string key)
+		{
 		}
 	}
 }

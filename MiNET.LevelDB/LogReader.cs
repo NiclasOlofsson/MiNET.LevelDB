@@ -187,7 +187,7 @@ namespace MiNET.LevelDB
 		public override string ToString()
 		{
 			return $"{nameof(LogRecordType)}: {LogRecordType}, {nameof(Length)}: {Length}, {nameof(Checksum)}: {Checksum}, "
-					+ $"{nameof(Data)}:\n{Data.HexDump(cutAfterFive: Data.Length > 16*10)}"
+					+ $"{nameof(Data)}:\n{Data?.HexDump(cutAfterFive: Data.Length > 16*10)}"
 				;
 		}
 	}

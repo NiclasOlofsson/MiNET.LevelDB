@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Newtonsoft.Json;
 
 namespace MiNET.LevelDB
 {
 	public interface ILevelDb
 	{
+		DirectoryInfo Directory { get; }
+
 		void Delete(byte[] key);
 
 		void Put(byte[] key, byte[] value);
@@ -21,6 +24,56 @@ namespace MiNET.LevelDB
 		void Destroy();
 
 		bool IsClosed();
+	}
+
+	class LevelDb : ILevelDb
+	{
+		public DirectoryInfo Directory { get; }
+
+		public LevelDb(DirectoryInfo dbDirectory)
+		{
+			Directory = dbDirectory;
+		}
+
+		public void Delete(byte[] key)
+		{
+			throw new NotImplementedException();
+		}
+
+		public void Put(byte[] key, byte[] value)
+		{
+			throw new NotImplementedException();
+		}
+
+		public byte[] Get(byte[] key)
+		{
+			throw new NotImplementedException();
+		}
+
+		public List<string> GetDbKeysStartingWith(string startWith)
+		{
+			throw new NotImplementedException();
+		}
+
+		public void Open()
+		{
+			throw new NotImplementedException();
+		}
+
+		public void Close()
+		{
+			throw new NotImplementedException();
+		}
+
+		public void Destroy()
+		{
+			throw new NotImplementedException();
+		}
+
+		public bool IsClosed()
+		{
+			throw new NotImplementedException();
+		}
 	}
 
 	public class Footer
@@ -61,7 +114,7 @@ namespace MiNET.LevelDB
 		public ulong? LastSequenceNumber { get; set; }
 		public Dictionary<int, InternalKey> CompactPointers { get; set; } = new Dictionary<int, InternalKey>();
 		public Dictionary<int, ulong> DeletedFiles { get; set; } = new Dictionary<int, ulong>();
-		public Dictionary<int, FileMetadata> NewFiles { get; set; } = new Dictionary<int, FileMetadata>();
+		public Dictionary<int, List<FileMetadata>> NewFiles { get; set; } = new Dictionary<int, List<FileMetadata>>();
 	}
 
 	public class FileMetadata

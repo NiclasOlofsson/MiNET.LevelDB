@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
@@ -13,9 +12,9 @@ using NUnit.Framework;
 namespace MiNET.LevelDBTests
 {
 	[TestFixture]
-	public class LevelDbTests
+	public class LevelDbTableTests
 	{
-		private static readonly ILog Log = LogManager.GetLogger(typeof(LevelDbTests));
+		private static readonly ILog Log = LogManager.GetLogger(typeof(LevelDbTableTests));
 
 		byte[] _indicatorChars =
 		{
@@ -25,7 +24,7 @@ namespace MiNET.LevelDBTests
 		};
 
 		[Test]
-		public void LevelDbReadTest()
+		public void LevelDbReadTableTest()
 		{
 			//foreach (var file in Directory.EnumerateFiles(@"D:\Temp\World Saves PE\ExoGAHavAAA=\db", "*.ldb"))
 			foreach (var file in Directory.EnumerateFiles(@"D:\Temp\My World\db", "*.ldb"))
@@ -50,10 +49,10 @@ namespace MiNET.LevelDBTests
 				BlockHandle indexHandle = ReadBlockHandle(fileStream);
 
 				byte[] metaIndexBlock = ReadBlock(fileStream, metaIndexHandle);
-				LogToFile("\n" + metaIndexBlock.HexDump());
+				Log.Debug("\n" + metaIndexBlock.HexDump());
 
 				KeyValuePair<string, byte[]> keyValue = GetKeyValue(metaIndexBlock);
-				LogToFile($"{keyValue.Key}, {keyValue.Value}");
+				Log.Debug($"{keyValue.Key}, {keyValue.Value}");
 				//Assert.AreEqual("filter.leveldb.BuiltinBloomFilter2", keyValue.Key);
 
 				//MemoryStream filterIndex = new MemoryStream(keyValue.Value);
@@ -79,11 +78,6 @@ namespace MiNET.LevelDBTests
 			}
 		}
 
-		private static void LogToFile(string s)
-		{
-			Log.Debug(s.TrimEnd());
-		}
-
 		private void DumpIndex(Reader reader)
 		{
 			MemoryStream index = new MemoryStream(reader.Index);
@@ -93,11 +87,11 @@ namespace MiNET.LevelDBTests
 			index.Seek(-4, SeekOrigin.End);
 			index.Read(num, 0, 4);
 			var numRestarts = BitConverter.ToUInt32(num, 0);
-			LogToFile($"NumRestarts={numRestarts}");
+			Log.Debug($"NumRestarts={numRestarts}");
 
 			//n:= len(b) - 4 * (1 + numRestarts)
 			index.Seek(index.Length - 4*(1 + numRestarts), SeekOrigin.Begin);
-			LogToFile($"Position={index.Position}");
+			Log.Debug($"Position={index.Position}");
 
 			int recordedRestarts = 0;
 			do
@@ -120,30 +114,30 @@ namespace MiNET.LevelDBTests
 
 					// Key=1, Offset=17, Lenght=3, 
 					// CurrentKey = <00 00 00 00> <16 00 00 00> <30> 01 d1 c2 00 00 00 00 00
-					LogToFile($"Key={key}, v1={v1}, v2={v2}\nCurrentKey={currentKey.HexDump(currentKey.Length, false, false)}\nCurrentVal={currentVal.HexDump(currentVal.Length, false, false)} ");
+					Log.Debug($"Key={key}, v1={v1}, v2={v2}\nCurrentKey={currentKey.HexDump(currentKey.Length, false, false)}\nCurrentVal={currentVal.HexDump(currentVal.Length, false, false)} ");
 
 					if (!_indicatorChars.Contains(currentKey[0]))
 					{
 						var mcpeKey = ParseMcpeKey(currentKey);
 						//var mcpeKey = ParseMcpeKey(currentKey.Take(currentKey.Length - 8).ToArray());
 						//if (mcpeKey.ChunkX == 0)
-						LogToFile($"ChunkX={mcpeKey.ChunkX}, ChunkZ={mcpeKey.ChunkZ}, Dimension={mcpeKey.Dimension}, Type={mcpeKey.BlockTag}, SubId={mcpeKey.SubChunkId}");
+						Log.Debug($"ChunkX={mcpeKey.ChunkX}, ChunkZ={mcpeKey.ChunkZ}, Dimension={mcpeKey.Dimension}, Type={mcpeKey.BlockTag}, SubId={mcpeKey.SubChunkId}");
 
 						BlockHandle blockHandle = ReadBlockHandle(new MemoryStream(currentVal));
 						Stream file = reader.Data;
 						var block = ReadBlock(file, blockHandle);
-						LogToFile($"Offset={blockHandle.Offset}, Len={blockHandle.Length}");
-						LogToFile($"Offset={blockHandle.Offset}, Len={block.Length} (uncompressed)\n{block.Take(16*10).ToArray().HexDump()}");
+						Log.Debug($"Offset={blockHandle.Offset}, Len={blockHandle.Length}");
+						Log.Debug($"Offset={blockHandle.Offset}, Len={block.Length} (uncompressed)\n{block.Take(16*10).ToArray().HexDump()}");
 						ParseMcpeBlockData(mcpeKey, block);
 					}
 					else
 					{
-						LogToFile($"Key ASCII: {Encoding.UTF8.GetString(currentKey)}");
+						Log.Debug($"Key ASCII: {Encoding.UTF8.GetString(currentKey)}");
 
 						var blockHandle = ReadBlockHandle(new MemoryStream(currentVal));
 						Stream file = reader.Data;
 						var block = ReadBlock(file, blockHandle);
-						LogToFile($"Offset={blockHandle.Offset}, Len={blockHandle.Length}\n{block.Take(16*10).ToArray().HexDump()}");
+						Log.Debug($"Offset={blockHandle.Offset}, Len={blockHandle.Length}\n{block.Take(16*10).ToArray().HexDump()}");
 					}
 				}
 				else
@@ -152,7 +146,7 @@ namespace MiNET.LevelDBTests
 				}
 			} while (index.Position < index.Length - 4);
 
-			LogToFile($"NumRestarts={numRestarts}, NumRecordedRestarts={recordedRestarts}");
+			Log.Debug($"NumRestarts={numRestarts}, NumRecordedRestarts={recordedRestarts}");
 		}
 
 		private void ParseMcpeBlockData(McpeKey key, byte[] data)
@@ -181,7 +175,7 @@ namespace MiNET.LevelDBTests
 				stream.Read(blocklight, 0, 16*16*h/2); // nibble
 			}
 
-			LogToFile($"BlockLength={data.Length}, Avail={stream.Length - stream.Position}");
+			Log.Debug($"BlockLength={data.Length}, Avail={stream.Length - stream.Position}");
 		}
 
 		private static McpeKey ParseMcpeKey(byte[] key)
@@ -189,7 +183,7 @@ namespace MiNET.LevelDBTests
 			var chunkX = BitConverter.ToInt32(key, 0);
 			var chunkZ = BitConverter.ToInt32(key, 4);
 			BlockTag blockType = (BlockTag) key[8];
-			LogToFile($"Dim: {blockType}:{(int) blockType}");
+			Log.Debug($"Dim: {blockType}:{(int) blockType}");
 			int dimension = 0;
 			int subChunkId = 0;
 			switch (blockType)
@@ -239,11 +233,6 @@ namespace MiNET.LevelDBTests
 			public BlockTag BlockTag { get; private set; }
 			public int Dimension { get; private set; }
 			public int SubChunkId { get; private set; }
-		}
-
-		static int Compare(byte[] a1, byte[] a2)
-		{
-			return StructuralComparisons.StructuralComparer.Compare(a1, a2);
 		}
 
 		private struct Reader

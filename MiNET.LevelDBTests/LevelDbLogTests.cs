@@ -1,6 +1,6 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
-using System.Text;
 using log4net;
 using MiNET.LevelDB;
 using Newtonsoft.Json;
@@ -11,9 +11,34 @@ namespace MiNET.LevelDBTests
 	// https://github.com/basho/leveldb/wiki/mv-overview
 
 	[TestFixture]
-	public class LebelDbLogTests
+	public class LevelDbLogTests
 	{
-		private static readonly ILog Log = LogManager.GetLogger(typeof(LebelDbLogTests));
+		private static readonly ILog Log = LogManager.GetLogger(typeof(LevelDbLogTests));
+
+		[Test]
+		public void LevelDbSearchManifestTest()
+		{
+			var directory = @"D:\Temp\My World\db\";
+
+			var currentStream = File.OpenText($@"{directory}CURRENT");
+			string manifestFilename = currentStream.ReadLine();
+			currentStream.Close();
+
+			Log.Debug($"Reading manifest from {manifestFilename}");
+
+			//"SmallestKey": {
+			//	"Key": "00 00 00 00 10 00 00 00 31 01 1f 34 00 00 00 00 00  ........1..4....."
+			//},
+			//"LargestKey": {
+			//	"Key": "ff ff ff ff fc ff ff ff 76 01 a7 42 00 00 00 00 00  ÿÿÿÿüÿÿÿv.§B....."
+			//}
+
+			var lookupKey = new byte[] {0x00, 0x00, 0x00, 0x00, 0x10, 0x01};
+
+			var fileStream = File.OpenRead($@"{directory}{manifestFilename}");
+			ManifestReader manifestReader = new ManifestReader(fileStream);
+			var result = manifestReader.Get(lookupKey);
+		}
 
 		[Test]
 		public void LevelDbReadManifestTest()
@@ -32,6 +57,8 @@ namespace MiNET.LevelDBTests
 			string manifestFilename = currentStream.ReadLine();
 			currentStream.Close();
 
+			Log.Debug($"Reading manifest from {manifestFilename}");
+
 			var fileStream = File.OpenRead($@"{directory}{manifestFilename}");
 			ManifestReader manifestReader = new ManifestReader(fileStream);
 
@@ -45,71 +72,72 @@ namespace MiNET.LevelDBTests
 			{
 				Record record = manifestReader.ReadRecord();
 
-				if (record.LogRecordType != LogRecordType.Full) break;
-
 				Log.Debug($"{record}");
+
+				if (record.LogRecordType != LogRecordType.Full) break;
 
 				VersionEdit versionEdit = new VersionEdit();
 
-				var seek = new BinaryReader(new MemoryStream(record.Data));
-				while (seek.BaseStream.Position < seek.BaseStream.Length)
+				var seek = new MemoryStream(record.Data);
+				while (seek.Position < seek.Length)
 				{
-					LogTagType logTag = (LogTagType) seek.BaseStream.ReadVarint();
+					LogTagType logTag = (LogTagType) seek.ReadVarint();
 					switch (logTag)
 					{
 						case LogTagType.Comparator:
 						{
-							versionEdit.Comparator = ReadLenghtPrefixedString(seek);
+							versionEdit.Comparator = seek.ReadLengthPrefixedString();
 							break;
 						}
 						case LogTagType.LogNumber:
 						{
-							versionEdit.LogNumber = seek.BaseStream.ReadVarint();
+							versionEdit.LogNumber = seek.ReadVarint();
 							break;
 						}
 						case LogTagType.NextFileNumber:
 						{
-							versionEdit.NextFileNumber = seek.BaseStream.ReadVarint();
+							versionEdit.NextFileNumber = seek.ReadVarint();
 							break;
 						}
 						case LogTagType.LastSequence:
 						{
-							versionEdit.LastSequenceNumber = seek.BaseStream.ReadVarint();
+							versionEdit.LastSequenceNumber = seek.ReadVarint();
 							break;
 						}
 						case LogTagType.CompactPointer:
 						{
-							int level = (int) seek.BaseStream.ReadVarint();
-							InternalKey key = new InternalKey(ReadLenghtPrefixedBytes(seek));
+							int level = (int) seek.ReadVarint();
+							InternalKey key = new InternalKey(seek.ReadLengthPrefixedBytes());
 							versionEdit.CompactPointers[level] = key;
 							break;
 						}
 						case LogTagType.DeletedFile:
 						{
-							int level = (int) seek.BaseStream.ReadVarint();
-							ulong fileNumber = seek.BaseStream.ReadVarint();
+							int level = (int) seek.ReadVarint();
+							ulong fileNumber = seek.ReadVarint();
 							versionEdit.DeletedFiles[level] = fileNumber;
 							break;
 						}
 						case LogTagType.NewFile:
 						{
-							int level = (int) seek.BaseStream.ReadVarint();
-							ulong fileNumber = seek.BaseStream.ReadVarint();
-							ulong fileSize = seek.BaseStream.ReadVarint();
-							var smallest = new InternalKey(ReadLenghtPrefixedBytes(seek));
-							var largest = new InternalKey(ReadLenghtPrefixedBytes(seek));
+							int level = (int) seek.ReadVarint();
+							ulong fileNumber = seek.ReadVarint();
+							ulong fileSize = seek.ReadVarint();
+							var smallest = new InternalKey(seek.ReadLengthPrefixedBytes());
+							var largest = new InternalKey(seek.ReadLengthPrefixedBytes());
 
 							FileMetadata fileMetadata = new FileMetadata();
 							fileMetadata.FileNumber = fileNumber;
 							fileMetadata.FileSize = fileSize;
 							fileMetadata.SmallestKey = smallest;
 							fileMetadata.LargestKey = largest;
-							versionEdit.NewFiles[level] = fileMetadata;
+							if (!versionEdit.NewFiles.ContainsKey(level)) versionEdit.NewFiles[level] = new List<FileMetadata>();
+							versionEdit.NewFiles[level].Add(fileMetadata);
 							break;
 						}
 						case LogTagType.PrevLogNumber:
 						{
-							versionEdit.PreviousLogNumber = seek.BaseStream.ReadVarint();
+							versionEdit.PreviousLogNumber = seek.ReadVarint();
 							break;
 						}
 						default:
@@ -131,7 +159,7 @@ namespace MiNET.LevelDBTests
 				nextFileNumber = versionEdit.NextFileNumber ?? nextFileNumber;
 				lastSequenceNumber = versionEdit.LastSequenceNumber ?? lastSequenceNumber;
 
-				LogToFile("------------------------------------------------------------");
+				Log.Debug("------------------------------------------------------------");
 			}
 
 			VersionEdit finalVersion = new VersionEdit();
@@ -144,22 +172,9 @@ namespace MiNET.LevelDBTests
 			finalVersion.DeletedFiles = null;
 			finalVersion.NewFiles = null;
 
-			LogToFile("============================================================");
+			Log.Debug("============================================================");
 			Print(finalVersion);
-			LogToFile("============================================================");
-		}
-
-		public static string ReadLenghtPrefixedString(BinaryReader seek)
-		{
-			ulong length = seek.BaseStream.ReadVarint();
-			string s = Encoding.UTF8.GetString(seek.ReadBytes((int) length));
-			return s;
-		}
-
-		public static byte[] ReadLenghtPrefixedBytes(BinaryReader seek)
-		{
-			ulong size = seek.BaseStream.ReadVarint();
-			return seek.ReadBytes((int) size);
+			Log.Debug("============================================================");
 		}
 
 		public static void Print(object obj)
@@ -173,7 +188,7 @@ namespace MiNET.LevelDBTests
 			};
 
 			string result = JsonConvert.SerializeObject(obj, jsonSerializerSettings);
-			LogToFile($"{result}");
+			Log.Debug($"{result}");
 		}
 
 		[Test]
@@ -215,14 +230,9 @@ namespace MiNET.LevelDBTests
 				//		datareader.Read(currentVal, 0, (int) v2);
 				//	}
 
-				//	LogToFile($"RecType={recType}, Sequence={sequenceNumber}, Size={size}, v1={v1}, v2={v2}\nCurrentKey={currentKey.HexDump(currentKey.Length, false, false)}\nCurrentVal=\n{currentVal.HexDump(cutAfterFive: true)} ");
+				//	Log.Debug($"RecType={recType}, Sequence={sequenceNumber}, Size={size}, v1={v1}, v2={v2}\nCurrentKey={currentKey.HexDump(currentKey.Length, false, false)}\nCurrentVal=\n{currentVal.HexDump(cutAfterFive: true)} ");
 				//}
 			}
-		}
-
-		private static void LogToFile(string s)
-		{
-			Log.Debug(s.TrimEnd());
 		}
 	}
 }
