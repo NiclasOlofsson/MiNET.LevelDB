@@ -21,6 +21,77 @@ namespace MiNET.LevelDB
 			_logStream = logStream;
 		}
 
+		public byte[] Get(Span<byte> key)
+		{
+			Reset();
+
+			while (true)
+			{
+				Record record = ReadRecord();
+
+				if (record == null)
+				{
+					Log.Debug("Reached end of block" + record);
+					break;
+				}
+
+				if (record.LogRecordType != LogRecordType.Full) throw new Exception("Invalid log file. Didn't find any records");
+
+				var stream = new MemoryStream(record.Data);
+				var reader = new BinaryReader(stream);
+
+				long sequenceNumber = reader.ReadInt64();
+				long size = reader.ReadInt32();
+
+				bool found = false;
+
+				BytewiseComparator comparator = new BytewiseComparator();
+				while (stream.Position < stream.Length)
+				{
+					byte recType = reader.ReadByte();
+
+					ulong v1 = stream.ReadVarint();
+					byte[] currentKey = new byte[v1];
+					reader.Read(currentKey, 0, currentKey.Length);
+
+					if (comparator.Compare(key, currentKey) == 0)
+					{
+						found = true;
+					}
+
+					ulong v2 = 0;
+					byte[] currentVal = new byte[0];
+					if (recType == 1)
+					{
+						v2 = stream.ReadVarint();
+						currentVal = new byte[v2];
+						reader.Read(currentVal, 0, (int) v2);
+
+						if (found) return currentVal;
+					}
+					else if (recType == 0)
+					{
+						// says return "not found" in this case. Need to investigate since I believe there can multiple records with same key in this case.
+						if (found) return null;
+					}
+					else
+					{
+						// unknown recType
+					}
+
+					Log.Debug($"RecType={recType}, Sequence={sequenceNumber}, Size={size}, v1={v1}, v2={v2}\nCurrentKey={currentKey.HexDump(currentKey.Length, false, false)}\nCurrentVal=\n{currentVal.HexDump(cutAfterFive: true)} ");
+				}
+			}
+
+			return null;
+		}
+
+		private void Reset()
+		{
+			_blockStream = null;
+			_logStream.Position = 0;
+		}
+
 		public Record ReadRecord()
 		{
 			Record lastRecord = null;
@@ -90,31 +161,6 @@ namespace MiNET.LevelDB
 					}
 
 					return record;
-
-					//var datareader = new BinaryReader(new MemoryStream(record.Data));
-
-					//long sequenceNumber = datareader.ReadInt64();
-					//long size = datareader.ReadInt32();
-
-					//while (datareader.BaseStream.Position < datareader.BaseStream.Length)
-					//{
-					//	byte recType = datareader.ReadByte();
-
-					//	ulong v1 = datareader.BaseStream.ReadVarint();
-					//	byte[] currentKey = new byte[v1];
-					//	datareader.Read(currentKey, 0, (int) v1);
-
-					//	ulong v2 = 0;
-					//	byte[] currentVal = new byte[0];
-					//	if (recType == 1)
-					//	{
-					//		v2 = datareader.BaseStream.ReadVarint();
-					//		currentVal = new byte[v2];
-					//		datareader.Read(currentVal, 0, (int) v2);
-					//	}
-
-					//	LogToFile($"RecType={recType}, Sequence={sequenceNumber}, Size={size}, v1={v1}, v2={v2}\nCurrentKey={currentKey.HexDump(currentKey.Length, false, false)}\nCurrentVal=\n{currentVal.HexDump(cutAfterFive: true)} ");
-					//}
 				}
 			}
 

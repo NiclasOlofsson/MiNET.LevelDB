@@ -192,13 +192,32 @@ namespace MiNET.LevelDBTests
 		}
 
 		[Test]
-		public void LevelDbReadLogTest()
+		public void LevelDbSearchLogTest()
 		{
 			// https://github.com/google/leveldb/blob/master/doc/log_format.md
 
 			var filestream = File.OpenRead(@"D:\Temp\World Saves PE\ExoGAHavAAA=\db\000341.log");
 
 			LogReader logReader = new LogReader(filestream);
+			byte[] result = logReader.Get(new byte[] {0xfc, 0xff, 0xff, 0xff, 0xf3, 0xff, 0xff, 0xff, 0x31,});
+
+			Assert.NotNull(result);
+			Assert.AreEqual(new byte[] {0xA, 0x00, 0x00, 0x02, 0x05}, result.AsSpan(0, 5).ToArray());
+		}
+
+		[Test]
+		public void LevelDbReadLogTest()
+		{
+			// https://github.com/google/leveldb/blob/master/doc/log_format.md
+
+			var filestream = File.OpenRead(@"D:\Temp\World Saves PE\ExoGAHavAAA=\db\000341.log");
+			//var filestream = File.OpenRead(@"D:\Temp\My World\db\000028.log");
+
+			LogReader logReader = new LogReader(filestream);
+
+			BytewiseComparator comparator = new BytewiseComparator();
+
+			bool found = false;
 
 			while (true)
 			{
@@ -208,31 +227,54 @@ namespace MiNET.LevelDBTests
 
 				Log.Debug($"{record}");
 
-				//var datareader = new BinaryReader(new MemoryStream(record.Data));
+				var datareader = new BinaryReader(new MemoryStream(record.Data));
 
-				//long sequenceNumber = datareader.ReadInt64();
-				//long size = datareader.ReadInt32();
+				long sequenceNumber = datareader.ReadInt64();
+				long size = datareader.ReadInt32();
 
-				//while (datareader.BaseStream.Position < datareader.BaseStream.Length)
-				//{
-				//	byte recType = datareader.ReadByte();
+				while (datareader.BaseStream.Position < datareader.BaseStream.Length)
+				{
+					byte recType = datareader.ReadByte();
 
-				//	ulong v1 = datareader.BaseStream.ReadVarint();
-				//	byte[] currentKey = new byte[v1];
-				//	datareader.Read(currentKey, 0, (int) v1);
+					ulong v1 = datareader.BaseStream.ReadVarint();
+					byte[] currentKey = new byte[v1];
+					datareader.Read(currentKey, 0, (int) v1);
 
-				//	ulong v2 = 0;
-				//	byte[] currentVal = new byte[0];
-				//	if (recType == 1)
-				//	{
-				//		v2 = datareader.BaseStream.ReadVarint();
-				//		currentVal = new byte[v2];
-				//		datareader.Read(currentVal, 0, (int) v2);
-				//	}
+					// CurrentKey = fc ff ff ff f3 ff ff ff 31
+					if (comparator.Compare(new byte[] {0xfc, 0xff, 0xff, 0xff, 0xf3, 0xff, 0xff, 0xff, 0x31,}, currentKey) == 0)
+					{
+						Assert.False(found);
+						found = true;
+					}
 
-				//	Log.Debug($"RecType={recType}, Sequence={sequenceNumber}, Size={size}, v1={v1}, v2={v2}\nCurrentKey={currentKey.HexDump(currentKey.Length, false, false)}\nCurrentVal=\n{currentVal.HexDump(cutAfterFive: true)} ");
-				//}
+					ulong v2 = 0;
+					byte[] currentVal = new byte[0];
+					switch (recType)
+					{
+						case 1: // value
+						{
+							if (recType == 1)
+							{
+								v2 = datareader.BaseStream.ReadVarint();
+								currentVal = new byte[v2];
+								datareader.Read(currentVal, 0, (int) v2);
+							}
+							break;
+						}
+						case 0: // delete
+						{
+							//Assert.Fail("Unexpected delete key");
+							break;
+						}
+						default:
+							throw new Exception("Unknown record format");
+					}
+
+					Log.Debug($"RecType={recType}, Sequence={sequenceNumber}, Size={size}, v1={v1}, v2={v2}\nCurrentKey={currentKey.HexDump(currentKey.Length, false, false)}\nCurrentVal=\n{currentVal.HexDump(cutAfterFive: true)} ");
+				}
 			}
+
+			Assert.True(found);
 		}
 	}
 }

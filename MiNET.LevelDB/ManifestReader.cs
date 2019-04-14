@@ -14,7 +14,7 @@ namespace MiNET.LevelDB
 		{
 		}
 
-		public byte[] Get(Span<byte> key)
+		public new byte[] Get(Span<byte> key)
 		{
 			VersionEdit versionEdit = ReadVersionEdit();
 			Print(versionEdit);
