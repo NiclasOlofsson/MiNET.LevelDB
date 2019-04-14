@@ -5,6 +5,9 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text;
+using Crc32C;
+using log4net;
+using MiNET.LevelDB;
 using NUnit.Framework;
 
 namespace MiNET.LevelDBTests
@@ -12,41 +15,7 @@ namespace MiNET.LevelDBTests
 	[TestFixture]
 	public class LevelDbTests
 	{
-		static StreamWriter file;
-
-		[SetUp]
-		public void Init()
-		{
-			/* ... */
-		}
-
-		[TearDown]
-		public void Cleanup()
-		{
-			file.Close();
-			file = null;
-		}
-
-		public enum BlockTag
-		{
-			Dimension0 = 0,
-			Dimension1 = 1,
-
-			Dimension2 = 2,
-			Data2D = 45,
-			Data2DLegacy = 46,
-			SubChunkPrefix = 47,
-			LegacyTerrain = 48,
-			BlockEntity = 49,
-			Entity = 50,
-			PendingTicks = 51,
-			BlockExtraData = 52,
-			BiomeState = 53,
-			Version = 118,
-
-			Undefined = 255
-		};
-
+		private static readonly ILog Log = LogManager.GetLogger(typeof(LevelDbTests));
 
 		byte[] _indicatorChars =
 		{
@@ -55,62 +24,64 @@ namespace MiNET.LevelDBTests
 			0x6e, 0x30
 		};
 
-		byte[] _magic = {0x57, 0xfb, 0x80, 0x8b, 0x24, 0x75, 0x47, 0xdb};
-
 		[Test]
 		public void LevelDbReadTest()
 		{
-			int blockTrailerLen = 5;
-			int footerLen = 48;
+			//foreach (var file in Directory.EnumerateFiles(@"D:\Temp\World Saves PE\ExoGAHavAAA=\db", "*.ldb"))
+			foreach (var file in Directory.EnumerateFiles(@"D:\Temp\My World\db", "*.ldb"))
+			{
+				Log.Info($"Reading sstable: {file}");
+				int blockTrailerLen = 5;
+				int footerLen = 48;
 
-			var stream = File.OpenRead(@"D:\Temp\World Saves PE\ExoGAHavAAA=\db\000344.ldb");
+				//var stream = File.OpenRead(@"D:\Temp\World Saves PE\ExoGAHavAAA=\db\000344.ldb");
+				//var stream = File.OpenRead(@"D:\Temp\World Saves PE\ExoGAHavAAA=\db\000005.ldb");
+				var fileStream = File.OpenRead(file);
 
-			stream.Seek(-footerLen, SeekOrigin.End);
-			byte[] footer = new byte[footerLen];
-			stream.Read(footer, 0, footerLen);
-			Assert.AreEqual(_magic, footer.Skip(footer.Length - _magic.Length).ToArray());
+				fileStream.Seek(-footerLen, SeekOrigin.End);
+				byte[] footer = new byte[footerLen];
+				fileStream.Read(footer, 0, footerLen);
 
-			stream.Seek(-footerLen, SeekOrigin.End);
+				Assert.AreEqual(Footer.Magic, footer.Skip(footer.Length - Footer.Magic.Length).ToArray());
 
-			var metaIndexHandle = ReadBlockHandle(stream);
-			var indexHandle = ReadBlockHandle(stream);
+				fileStream.Seek(-footerLen, SeekOrigin.End);
 
-			byte[] metaIndexBlock = ReadBlock(stream, metaIndexHandle);
-			//Console.WriteLine(HexDump(metaIndexBlock));
+				BlockHandle metaIndexHandle = ReadBlockHandle(fileStream);
+				BlockHandle indexHandle = ReadBlockHandle(fileStream);
 
-			var keyValue = GetKeyValue(metaIndexBlock);
-			Assert.AreEqual("filter.leveldb.BuiltinBloomFilter2", keyValue.Key);
+				byte[] metaIndexBlock = ReadBlock(fileStream, metaIndexHandle);
+				LogToFile("\n" + metaIndexBlock.HexDump());
 
-			//MemoryStream filterIndex = new MemoryStream(keyValue.Value);
-			//var offset = (long) ReadVarInt64(filterIndex);
-			//var length = (int) ReadVarInt64(filterIndex);
+				KeyValuePair<string, byte[]> keyValue = GetKeyValue(metaIndexBlock);
+				LogToFile($"{keyValue.Key}, {keyValue.Value}");
+				//Assert.AreEqual("filter.leveldb.BuiltinBloomFilter2", keyValue.Key);
 
-			//var metaIndex = ReadBlock(stream, new BlockHandle(offset, length));
-			//Console.WriteLine(HexDump(metaIndex));
+				//MemoryStream filterIndex = new MemoryStream(keyValue.Value);
+				//var offset = (long) ReadVarInt64(filterIndex);
+				//var length = (int) ReadVarInt64(filterIndex);
 
-			//offset = (long) ReadVarInt64(stream);
-			//length = (int) ReadVarInt64(stream);
+				//var metaIndex = ReadBlock(stream, new BlockHandle(offset, length));
+				//Console.WriteLine(HexDump(metaIndex));
 
-			//var data = ReadBlock(stream, new BlockHandle(offset, length));
-			//Console.WriteLine(HexDump(data));
+				//offset = (long) ReadVarInt64(stream);
+				//length = (int) ReadVarInt64(stream);
 
-			byte[] indexBlock = ReadBlock(stream, indexHandle);
+				//var data = ReadBlock(stream, new BlockHandle(offset, length));
+				//Console.WriteLine(HexDump(data));
 
-			Reader reader = new Reader(indexBlock, stream);
+				byte[] indexBlock = ReadBlock(fileStream, indexHandle);
 
-			Assert.IsTrue(BitConverter.IsLittleEndian);
+				Reader reader = new Reader(indexBlock, fileStream);
 
-			DumpIndex(reader);
+				Assert.IsTrue(BitConverter.IsLittleEndian);
+
+				DumpIndex(reader);
+			}
 		}
 
-		private static void Log(string s)
+		private static void LogToFile(string s)
 		{
-			if (file == null)
-			{
-				file = new StreamWriter(@"D:\Temp\test_log.txt", true);
-			}
-
-			file.WriteLine(s.Trim());
+			Log.Debug(s.TrimEnd());
 		}
 
 		private void DumpIndex(Reader reader)
@@ -122,11 +93,11 @@ namespace MiNET.LevelDBTests
 			index.Seek(-4, SeekOrigin.End);
 			index.Read(num, 0, 4);
 			var numRestarts = BitConverter.ToUInt32(num, 0);
-			Log($"NumRestarts={numRestarts}");
+			LogToFile($"NumRestarts={numRestarts}");
 
 			//n:= len(b) - 4 * (1 + numRestarts)
 			index.Seek(index.Length - 4*(1 + numRestarts), SeekOrigin.Begin);
-			Log($"Position={index.Position}");
+			LogToFile($"Position={index.Position}");
 
 			int recordedRestarts = 0;
 			do
@@ -135,10 +106,10 @@ namespace MiNET.LevelDBTests
 				{
 					var key = BitConverter.ToUInt32(num, 0);
 					seek.Seek(key, SeekOrigin.Begin);
-					var mustBe0 = (long) ReadVarInt32(seek);
+					var mustBe0 = (long) seek.ReadVarint();
 					Assert.AreEqual(0, mustBe0);
-					var v1 = (ulong) ReadVarInt32(seek);
-					var v2 = (ulong) ReadVarInt32(seek);
+					var v1 = (ulong) seek.ReadVarint();
+					var v2 = (ulong) seek.ReadVarint();
 
 					byte[] currentKey = new byte[v1];
 					seek.Read(currentKey, 0, (int) v1);
@@ -149,29 +120,30 @@ namespace MiNET.LevelDBTests
 
 					// Key=1, Offset=17, Lenght=3, 
 					// CurrentKey = <00 00 00 00> <16 00 00 00> <30> 01 d1 c2 00 00 00 00 00
-					Log($"Key={key}, v1={v1}, v2={v2}\nCurrentKey={HexDump(currentKey, currentKey.Length, false, false)}\nCurrentVal={HexDump(currentVal, currentVal.Length, false, false)} ");
+					LogToFile($"Key={key}, v1={v1}, v2={v2}\nCurrentKey={currentKey.HexDump(currentKey.Length, false, false)}\nCurrentVal={currentVal.HexDump(currentVal.Length, false, false)} ");
 
 					if (!_indicatorChars.Contains(currentKey[0]))
 					{
 						var mcpeKey = ParseMcpeKey(currentKey);
 						//var mcpeKey = ParseMcpeKey(currentKey.Take(currentKey.Length - 8).ToArray());
 						//if (mcpeKey.ChunkX == 0)
-						Log($"ChunkX={mcpeKey.ChunkX}, ChunkZ={mcpeKey.ChunkZ}, Dimension={mcpeKey.Dimension}, Type={mcpeKey.BlockTag}, SubId={mcpeKey.SubChunkId}");
+						LogToFile($"ChunkX={mcpeKey.ChunkX}, ChunkZ={mcpeKey.ChunkZ}, Dimension={mcpeKey.Dimension}, Type={mcpeKey.BlockTag}, SubId={mcpeKey.SubChunkId}");
 
-						var blockHandle = ReadBlockHandle(new MemoryStream(currentVal));
+						BlockHandle blockHandle = ReadBlockHandle(new MemoryStream(currentVal));
 						Stream file = reader.Data;
 						var block = ReadBlock(file, blockHandle);
-						Log($"Offset={blockHandle.Offset}, Len={blockHandle.Length}\n{HexDump(block.Take(16*10).ToArray())}");
+						LogToFile($"Offset={blockHandle.Offset}, Len={blockHandle.Length}");
+						LogToFile($"Offset={blockHandle.Offset}, Len={block.Length} (uncompressed)\n{block.Take(16*10).ToArray().HexDump()}");
 						ParseMcpeBlockData(mcpeKey, block);
 					}
 					else
 					{
-						Log($"Key ASCII: {Encoding.UTF8.GetString(currentKey)}");
+						LogToFile($"Key ASCII: {Encoding.UTF8.GetString(currentKey)}");
 
 						var blockHandle = ReadBlockHandle(new MemoryStream(currentVal));
 						Stream file = reader.Data;
 						var block = ReadBlock(file, blockHandle);
-						Log($"Offset={blockHandle.Offset}, Len={blockHandle.Length}\n{HexDump(block.Take(16*10).ToArray())}");
+						LogToFile($"Offset={blockHandle.Offset}, Len={blockHandle.Length}\n{block.Take(16*10).ToArray().HexDump()}");
 					}
 				}
 				else
@@ -180,7 +152,7 @@ namespace MiNET.LevelDBTests
 				}
 			} while (index.Position < index.Length - 4);
 
-			Log($"NumRestarts={numRestarts}, NumRecordedRestarts={recordedRestarts}");
+			LogToFile($"NumRestarts={numRestarts}, NumRecordedRestarts={recordedRestarts}");
 		}
 
 		private void ParseMcpeBlockData(McpeKey key, byte[] data)
@@ -209,7 +181,7 @@ namespace MiNET.LevelDBTests
 				stream.Read(blocklight, 0, 16*16*h/2); // nibble
 			}
 
-			Console.WriteLine($"BlockLength={data.Length}, Avail={stream.Length - stream.Position}");
+			LogToFile($"BlockLength={data.Length}, Avail={stream.Length - stream.Position}");
 		}
 
 		private static McpeKey ParseMcpeKey(byte[] key)
@@ -217,7 +189,7 @@ namespace MiNET.LevelDBTests
 			var chunkX = BitConverter.ToInt32(key, 0);
 			var chunkZ = BitConverter.ToInt32(key, 4);
 			BlockTag blockType = (BlockTag) key[8];
-			Log($"Dim: {blockType}");
+			LogToFile($"Dim: {blockType}:{(int) blockType}");
 			int dimension = 0;
 			int subChunkId = 0;
 			switch (blockType)
@@ -231,8 +203,11 @@ namespace MiNET.LevelDBTests
 				case BlockTag.PendingTicks:
 				case BlockTag.BlockExtraData:
 				case BlockTag.BiomeState:
+					subChunkId = key[8 + 1];
+					break;
 				case BlockTag.Version:
 					subChunkId = key[8 + 1];
+					Log.Info($"Found version {subChunkId}");
 					break;
 				case BlockTag.Dimension0:
 				case BlockTag.Dimension1:
@@ -283,22 +258,10 @@ namespace MiNET.LevelDBTests
 			}
 		}
 
-		private struct BlockHandle
-		{
-			public long Offset { get; }
-			public long Length { get; }
-
-			public BlockHandle(long offset, long length)
-			{
-				Offset = offset;
-				Length = length;
-			}
-		}
-
 		private BlockHandle ReadBlockHandle(Stream stream)
 		{
-			long offset = (long) ReadVarInt32(stream);
-			int length = (int) ReadVarInt32(stream);
+			ulong offset = stream.ReadVarint();
+			ulong length = stream.ReadVarint();
 
 			return new BlockHandle(offset, length);
 		}
@@ -306,9 +269,9 @@ namespace MiNET.LevelDBTests
 		private KeyValuePair<string, byte[]> GetKeyValue(byte[] block)
 		{
 			MemoryStream stream = new MemoryStream(block);
-			int n1 = (int) ReadVarInt32(stream);
-			int n2 = (int) ReadVarInt32(stream);
-			int n3 = (int) ReadVarInt32(stream);
+			int n1 = (int) stream.ReadVarint();
+			int n2 = (int) stream.ReadVarint();
+			int n3 = (int) stream.ReadVarint();
 
 			byte[] keyData = new byte[n2];
 			stream.Read(keyData, n1, n2);
@@ -322,22 +285,48 @@ namespace MiNET.LevelDBTests
 
 		private byte[] ReadBlock(Stream stream, BlockHandle handle)
 		{
+			// File format contains a sequence of blocks where each block has:
+			//    block_data: uint8[n]
+			//    type: uint8
+			//    crc: uint32
+
 			byte[] data = new byte[handle.Length];
-			byte[] checksum = new byte[4];
-			stream.Seek(handle.Offset, SeekOrigin.Begin);
+			stream.Seek((long) handle.Offset, SeekOrigin.Begin);
 			stream.Read(data, 0, data.Length);
 
 			byte compressionType = (byte) stream.ReadByte();
-			//Console.WriteLine($"Compression={compressionType}");
-			if (compressionType >= 2)
+
+			byte[] checksum = new byte[4];
+			stream.Read(checksum, 0, checksum.Length);
+			uint crc = BitConverter.ToUInt32(checksum);
+
+			uint checkCrc = Crc32CAlgorithm.Compute(data);
+			checkCrc = BlockHandle.Mask(Crc32CAlgorithm.Append(checkCrc, new[] {compressionType}));
+
+			Assert.AreEqual(crc, checkCrc);
+
+			Log.Debug($"Compression={compressionType}, crc={crc}, checkcrc={checkCrc}");
+			if (compressionType == 0)
+			{
+				// uncompressed
+			}
+			else if (compressionType == 1)
+			{
+				// Snapp, i can't read that
+				throw new NotSupportedException("Can't read snappy compressed data");
+			}
+			else if (compressionType >= 2)
 			{
 				var dataStream = new MemoryStream(data);
 
-				if (dataStream.ReadByte() != 0x78)
+				if (compressionType == 2)
 				{
-					throw new InvalidDataException("Incorrect ZLib header. Expected 0x78 0x9C");
+					if (dataStream.ReadByte() != 0x78)
+					{
+						throw new InvalidDataException("Incorrect ZLib header. Expected 0x78 0x9C");
+					}
+					dataStream.ReadByte();
 				}
-				dataStream.ReadByte();
 
 				using (var defStream2 = new DeflateStream(dataStream, CompressionMode.Decompress))
 				{
@@ -350,109 +339,7 @@ namespace MiNET.LevelDBTests
 				}
 			}
 
-			int crc = Convert.ToInt32(stream.Read(checksum, 0, checksum.Length));
-
 			return data;
 		}
-
-		public static string HexDump(byte[] bytes, int bytesPerLine = 16, bool printLineCount = false, bool printText = true, bool cutAfterFive = false)
-		{
-			StringBuilder sb = new StringBuilder();
-			for (int line = 0; line < bytes.Length; line += bytesPerLine)
-			{
-				if (cutAfterFive && line >= bytesPerLine*5)
-				{
-					sb.AppendLine(".. output cut after 5 lines");
-					break;
-				}
-
-				byte[] lineBytes = bytes.Skip(line).Take(bytesPerLine).ToArray();
-				if (printLineCount) sb.AppendFormat("{0:x8} ", line);
-				sb.Append(string.Join(" ", lineBytes.Select(b => b.ToString("x2"))
-						.ToArray())
-					.PadRight(bytesPerLine*3));
-				if (printText)
-				{
-					sb.Append(" ");
-					sb.Append(new string(lineBytes.Select(b => b < 32 ? '.' : (char) b)
-						.ToArray()));
-				}
-				if (bytesPerLine < bytes.Length)
-					sb.AppendLine();
-			}
-
-			return sb.ToString();
-		}
-
-		public static ulong ReadVarInt32(Stream buf, int maxSize = 10)
-		{
-			return (ulong) ReadVariableLengthInt(buf);
-		}
-
-		public static int ReadVariableLengthInt(Stream sliceInput)
-		{
-			int result = 0;
-			for (int shift = 0; shift <= 28; shift += 7)
-			{
-				int b = sliceInput.ReadByte();
-				// add the lower 7 bits to the result
-				result |= ((b & 0x7f) << shift);
-
-				// if high bit is not set, this is the last byte in the number
-				if ((b & 0x80) == 0)
-				{
-					return result;
-				}
-			}
-			throw new Exception("last byte of variable length int has high bit set");
-		}
-
-		public static long ReadVariableLengthLong(Stream sliceInput)
-		{
-			long result = 0;
-			for (int shift = 0; shift <= 63; shift += 7)
-			{
-				long b = sliceInput.ReadByte();
-
-				// add the lower 7 bits to the result
-				result |= ((b & 0x7f) << shift);
-
-				// if high bit is not set, this is the last byte in the number
-				if ((b & 0x80) == 0)
-				{
-					return result;
-				}
-			}
-			throw new Exception("last byte of variable length int has high bit set");
-		}
-	}
-
-	abstract class LevelDbFactory
-	{
-		/**
-		 * Loads/creates a (new) database, located at the given File path.
-		 * @param dbFolder The root path of the database folder.
-		 * @return An object with database controls as specified in {@link ILevelDB}.
-		 */
-		public abstract ILevelDb LoadLevelDb(DirectoryInfo dbFolder);
-	}
-
-	public interface ILevelDb
-	{
-		void Delete(byte[] key);
-
-		void Put(byte[] key, byte[] value);
-
-		byte[] Get(byte[] key);
-
-		List<String> GetDbKeysStartingWith(String startWith);
-
-		void Open();
-
-		void Close();
-
-		void Destroy();
-
-		bool IsClosed();
 	}
 }

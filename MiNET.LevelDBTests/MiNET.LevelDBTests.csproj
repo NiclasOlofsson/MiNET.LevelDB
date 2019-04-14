@@ -7,9 +7,21 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<PackageReference Include="Crc32C.NET" Version="1.0.5" />
+		<PackageReference Include="log4net" Version="2.0.8" />
 		<PackageReference Include="NUnit" Version="3.11.0" />
 		<PackageReference Include="NUnit3TestAdapter" Version="3.9.0" />
 		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="15.5.0" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <ProjectReference Include="..\MiNET.LevelDB\MiNET.LevelDB.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <None Update="log4net.xml">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
 	</ItemGroup>
 
 </Project>
