@@ -1,10 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Text;
-using Crc32C;
 using log4net;
 using MiNET.LevelDB;
 using NUnit.Framework;
@@ -24,36 +22,53 @@ namespace MiNET.LevelDBTests
 		};
 
 		[Test]
+		public void LevelDbReadFindInTableTest()
+		{
+			//foreach (var file in Directory.EnumerateFiles(@"D:\Temp\My World\db", "*.ldb"))
+			{
+				//2019 - 04 - 15 22:18:19,001[NonParallelWorker] INFO MiNET.LevelDBTests.LevelDbTableTests - Reading sstable: D:\Temp\My World\db\000022.ldb
+
+				FileInfo fileInfo = new FileInfo(@"D:\Temp\My World\db\000022.ldb");
+				TableReader table = new TableReader(fileInfo);
+				// Key=(+4) fe ff ff ff f1 ff ff ff 2d 01 06 39 00 00 00 00 00
+
+				var result = table.Get(new byte[] {0xfe, 0xff, 0xff, 0xff, 0xf1, 0xff, 0xff, 0xff, 0x2d, 0x01, 0x06, 0x39, 0x00, 0x00, 0x00, 0x00, 0x00,});
+				if (result != null)
+				{
+					Log.Debug("Result:\n" + result.HexDump(cutAfterFive: true));
+					return;
+				}
+			}
+
+			Assert.Fail("Found no entry");
+		}
+
+		[Test]
 		public void LevelDbReadTableTest()
 		{
 			//foreach (var file in Directory.EnumerateFiles(@"D:\Temp\World Saves PE\ExoGAHavAAA=\db", "*.ldb"))
 			foreach (var file in Directory.EnumerateFiles(@"D:\Temp\My World\db", "*.ldb"))
 			{
 				Log.Info($"Reading sstable: {file}");
-				int blockTrailerLen = 5;
-				int footerLen = 48;
 
 				//var stream = File.OpenRead(@"D:\Temp\World Saves PE\ExoGAHavAAA=\db\000344.ldb");
 				//var stream = File.OpenRead(@"D:\Temp\World Saves PE\ExoGAHavAAA=\db\000005.ldb");
 				var fileStream = File.OpenRead(file);
 
-				fileStream.Seek(-footerLen, SeekOrigin.End);
-				byte[] footer = new byte[footerLen];
-				fileStream.Read(footer, 0, footerLen);
+				Footer footer = Footer.Read(fileStream);
+				BlockHandle metaIndexHandle = footer.MetaindexBlockHandle;
+				BlockHandle indexHandle = footer.BlockIndexBlockHandle;
 
-				Assert.AreEqual(Footer.Magic, footer.Skip(footer.Length - Footer.Magic.Length).ToArray());
-
-				fileStream.Seek(-footerLen, SeekOrigin.End);
-
-				BlockHandle metaIndexHandle = ReadBlockHandle(fileStream);
-				BlockHandle indexHandle = ReadBlockHandle(fileStream);
-
-				byte[] metaIndexBlock = ReadBlock(fileStream, metaIndexHandle);
+				byte[] metaIndexBlock = BlockHandle.ReadBlock(fileStream, metaIndexHandle);
 				Log.Debug("\n" + metaIndexBlock.HexDump());
 
-				KeyValuePair<string, byte[]> keyValue = GetKeyValue(metaIndexBlock);
-				Log.Debug($"{keyValue.Key}, {keyValue.Value}");
-				//Assert.AreEqual("filter.leveldb.BuiltinBloomFilter2", keyValue.Key);
+				var keyValues = GetKeyValues(metaIndexBlock);
+				if (keyValues.TryGetValue("filter.leveldb.BuiltinBloomFilter2", out BlockHandle filterHandle))
+				{
+					var filterBlock = BlockHandle.ReadBlock(fileStream, filterHandle);
+					Assert.NotNull(filterBlock);
+					Log.Debug("\n" + filterBlock.HexDump(cutAfterFive: true));
+				}
 
 				//MemoryStream filterIndex = new MemoryStream(keyValue.Value);
 				//var offset = (long) ReadVarInt64(filterIndex);
@@ -68,15 +83,117 @@ namespace MiNET.LevelDBTests
 				//var data = ReadBlock(stream, new BlockHandle(offset, length));
 				//Console.WriteLine(HexDump(data));
 
-				byte[] indexBlock = ReadBlock(fileStream, indexHandle);
+				byte[] indexBlock = BlockHandle.ReadBlock(fileStream, indexHandle);
+				var blocks = DumpIndexOnly(indexBlock);
 
-				Reader reader = new Reader(indexBlock, fileStream);
+				//Reader reader = new Reader(indexBlock, fileStream);
+				//DumpIndex(reader);
+
+				DumpBlockData(fileStream, blocks);
 
 				Assert.IsTrue(BitConverter.IsLittleEndian);
-
-				DumpIndex(reader);
 			}
 		}
+
+		private List<BlockHandle> DumpIndexOnly(byte[] block)
+		{
+			List<BlockHandle> blockHandles = new List<BlockHandle>();
+
+			MemoryStream stream = new MemoryStream(block);
+			int indexSize = GetRestartIndexSize(stream);
+
+			while (stream.Position < stream.Length - indexSize)
+			{
+				int n1 = (int) stream.ReadVarint();
+				int n2 = (int) stream.ReadVarint();
+				int n3 = (int) stream.ReadVarint();
+
+				byte[] keyData = new byte[n2];
+				stream.Read(keyData, n1, n2);
+
+				var handle = BlockHandle.ReadBlockHandle(stream);
+				blockHandles.Add(handle);
+
+				Log.Debug($"String key={Encoding.UTF8.GetString(keyData)}, BlockHandle={handle}");
+			}
+
+			return blockHandles;
+		}
+
+		private void DumpBlockData(FileStream reader, List<BlockHandle> blocks)
+		{
+			foreach (var blockHandle in blocks)
+			{
+				var block = BlockHandle.ReadBlock(reader, blockHandle);
+				DumpBlock(block);
+			}
+		}
+
+		private void DumpBlock(byte[] blockdata)
+		{
+			Stream stream = new MemoryStream(blockdata);
+			stream.Position = 0;
+
+			int indexSize = GetRestartIndexSize(stream);
+
+			Span<byte> lastKey = null;
+			while (stream.Position < stream.Length - indexSize)
+			{
+				// An entry for a particular key-value pair has the form:
+				//     shared_bytes: varint32
+				var sharedBytes = stream.ReadVarint();
+				Assert.True(lastKey != null || sharedBytes == 0);
+				//     unshared_bytes: varint32
+				var unsharedBytes = stream.ReadVarint();
+				//     value_length: varint32
+				var valueLength = stream.ReadVarint();
+				//     key_delta: char[unshared_bytes]
+				Span<byte> keyDelta = new byte[unsharedBytes];
+				stream.Read(keyDelta);
+				Span<byte> combinedKey = new Span<byte>(new byte[sharedBytes + unsharedBytes]);
+				lastKey.Slice(0, (int) sharedBytes).CopyTo(combinedKey.Slice(0, (int) sharedBytes));
+				keyDelta.CopyTo(combinedKey.Slice((int) sharedBytes, (int) unsharedBytes));
+				lastKey = combinedKey;
+
+				//     value: char[value_length]
+				byte[] value = new byte[valueLength];
+				stream.Read(value, 0, (int) valueLength);
+
+				// shared_bytes == 0 for restart points.
+				//
+				// The trailer of the block has the form:
+				//     restarts: uint32[num_restarts]
+				//     num_restarts: uint32
+				// restarts[i] contains the offset within the block of the ith restart point.
+
+				Log.Debug($"\nKey=(+{sharedBytes}) {combinedKey.ToArray().HexDump(bytesPerLine: combinedKey.Length, cutAfterFive: true)}\n{value.HexDump(cutAfterFive: true)}");
+
+				//if (!_indicatorChars.Contains(keyDelta[0]))
+				//{
+				//	var mcpeKey = ParseMcpeKey(keyDelta);
+				//	//var mcpeKey = ParseMcpeKey(currentKey.Take(currentKey.Length - 8).ToArray());
+				//	//if (mcpeKey.ChunkX == 0)
+				//	Log.Debug($"ChunkX={mcpeKey.ChunkX}, ChunkZ={mcpeKey.ChunkZ}, Dimension={mcpeKey.Dimension}, Type={mcpeKey.BlockTag}, SubId={mcpeKey.SubChunkId}");
+
+				//	BlockHandle blockHandle = BlockHandle.ReadBlockHandle(new MemoryStream(value));
+				//	Stream file = reader.Data;
+				//	var block = BlockHandle.ReadBlock(file, blockHandle);
+				//	Log.Debug($"Offset={blockHandle.Offset}, Len={blockHandle.Length}");
+				//	Log.Debug($"Offset={blockHandle.Offset}, Len={block.Length} (uncompressed)\n{block.Take(16*10).ToArray().HexDump()}");
+				//	ParseMcpeBlockData(mcpeKey, block);
+				//}
+				//else
+				//{
+				//	Log.Debug($"Key ASCII: {Encoding.UTF8.GetString(keyDelta)}");
+
+				//	var blockHandle = BlockHandle.ReadBlockHandle(new MemoryStream(value));
+				//	Stream file = reader.Data;
+				//	var block = BlockHandle.ReadBlock(file, blockHandle);
+				//	Log.Debug($"Offset={blockHandle.Offset}, Len={blockHandle.Length}\n{block.Take(16*10).ToArray().HexDump()}");
+				//}
+			}
+		}
+
 
 		private void DumpIndex(Reader reader)
 		{
@@ -107,6 +224,7 @@ namespace MiNET.LevelDBTests
 
 					byte[] currentKey = new byte[v1];
 					seek.Read(currentKey, 0, (int) v1);
+
 					byte[] currentVal = new byte[v2];
 					seek.Read(currentVal, 0, (int) v2);
 
@@ -123,9 +241,9 @@ namespace MiNET.LevelDBTests
 						//if (mcpeKey.ChunkX == 0)
 						Log.Debug($"ChunkX={mcpeKey.ChunkX}, ChunkZ={mcpeKey.ChunkZ}, Dimension={mcpeKey.Dimension}, Type={mcpeKey.BlockTag}, SubId={mcpeKey.SubChunkId}");
 
-						BlockHandle blockHandle = ReadBlockHandle(new MemoryStream(currentVal));
+						BlockHandle blockHandle = BlockHandle.ReadBlockHandle(new MemoryStream(currentVal));
 						Stream file = reader.Data;
-						var block = ReadBlock(file, blockHandle);
+						var block = BlockHandle.ReadBlock(file, blockHandle);
 						Log.Debug($"Offset={blockHandle.Offset}, Len={blockHandle.Length}");
 						Log.Debug($"Offset={blockHandle.Offset}, Len={block.Length} (uncompressed)\n{block.Take(16*10).ToArray().HexDump()}");
 						ParseMcpeBlockData(mcpeKey, block);
@@ -134,9 +252,9 @@ namespace MiNET.LevelDBTests
 					{
 						Log.Debug($"Key ASCII: {Encoding.UTF8.GetString(currentKey)}");
 
-						var blockHandle = ReadBlockHandle(new MemoryStream(currentVal));
+						var blockHandle = BlockHandle.ReadBlockHandle(new MemoryStream(currentVal));
 						Stream file = reader.Data;
-						var block = ReadBlock(file, blockHandle);
+						var block = BlockHandle.ReadBlock(file, blockHandle);
 						Log.Debug($"Offset={blockHandle.Offset}, Len={blockHandle.Length}\n{block.Take(16*10).ToArray().HexDump()}");
 					}
 				}
@@ -247,88 +365,44 @@ namespace MiNET.LevelDBTests
 			}
 		}
 
-		private BlockHandle ReadBlockHandle(Stream stream)
+		private int GetRestartIndexSize(Stream stream)
 		{
-			ulong offset = stream.ReadVarint();
-			ulong length = stream.ReadVarint();
-
-			return new BlockHandle(offset, length);
+			long currPos = stream.Position;
+			stream.Seek(-4, SeekOrigin.End);
+			BinaryReader reader = new BinaryReader(stream);
+			int count = reader.ReadInt32();
+			stream.Position = currPos;
+			return (1 + count)*4;
 		}
 
-		private KeyValuePair<string, byte[]> GetKeyValue(byte[] block)
+		private Dictionary<string, BlockHandle> GetKeyValues(byte[] block)
 		{
+			var result = new Dictionary<string, BlockHandle>();
+
 			MemoryStream stream = new MemoryStream(block);
-			int n1 = (int) stream.ReadVarint();
-			int n2 = (int) stream.ReadVarint();
-			int n3 = (int) stream.ReadVarint();
+			int indexSize = GetRestartIndexSize(stream);
 
-			byte[] keyData = new byte[n2];
-			stream.Read(keyData, n1, n2);
+			while (stream.Position < stream.Length - indexSize)
+			{
+				int n1 = (int) stream.ReadVarint();
+				int n2 = (int) stream.ReadVarint();
+				int n3 = (int) stream.ReadVarint();
 
+				byte[] keyData = new byte[n2];
+				stream.Read(keyData, n1, n2);
 
-			byte[] valData = new byte[n3];
-			stream.Read(valData, 0, n3);
+				var filterHandle = BlockHandle.ReadBlockHandle(stream);
 
-			return new KeyValuePair<string, byte[]>(Encoding.UTF8.GetString(keyData), valData);
+				Log.Debug($"Key={Encoding.UTF8.GetString(keyData)}, BlockHandle={filterHandle}");
+
+				result.Add(Encoding.UTF8.GetString(keyData), filterHandle);
+			}
+
+			return result;
 		}
 
-		private byte[] ReadBlock(Stream stream, BlockHandle handle)
+		public void ReadBloomFilter2(byte[] data)
 		{
-			// File format contains a sequence of blocks where each block has:
-			//    block_data: uint8[n]
-			//    type: uint8
-			//    crc: uint32
-
-			byte[] data = new byte[handle.Length];
-			stream.Seek((long) handle.Offset, SeekOrigin.Begin);
-			stream.Read(data, 0, data.Length);
-
-			byte compressionType = (byte) stream.ReadByte();
-
-			byte[] checksum = new byte[4];
-			stream.Read(checksum, 0, checksum.Length);
-			uint crc = BitConverter.ToUInt32(checksum);
-
-			uint checkCrc = Crc32CAlgorithm.Compute(data);
-			checkCrc = BlockHandle.Mask(Crc32CAlgorithm.Append(checkCrc, new[] {compressionType}));
-
-			Assert.AreEqual(crc, checkCrc);
-
-			Log.Debug($"Compression={compressionType}, crc={crc}, checkcrc={checkCrc}");
-			if (compressionType == 0)
-			{
-				// uncompressed
-			}
-			else if (compressionType == 1)
-			{
-				// Snapp, i can't read that
-				throw new NotSupportedException("Can't read snappy compressed data");
-			}
-			else if (compressionType >= 2)
-			{
-				var dataStream = new MemoryStream(data);
-
-				if (compressionType == 2)
-				{
-					if (dataStream.ReadByte() != 0x78)
-					{
-						throw new InvalidDataException("Incorrect ZLib header. Expected 0x78 0x9C");
-					}
-					dataStream.ReadByte();
-				}
-
-				using (var defStream2 = new DeflateStream(dataStream, CompressionMode.Decompress))
-				{
-					// Get actual package out of bytes
-					using (MemoryStream destination = new MemoryStream())
-					{
-						defStream2.CopyTo(destination);
-						data = destination.ToArray();
-					}
-				}
-			}
-
-			return data;
 		}
 	}
 }

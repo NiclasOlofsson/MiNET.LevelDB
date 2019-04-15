@@ -6,12 +6,22 @@ using Newtonsoft.Json;
 
 namespace MiNET.LevelDB
 {
+	/// <summary>
+	///     The first layer is the "manifest". Every table file has an entry in the manifest. The manifest entry tracks the
+	///     first and last key contained in each table file. The manifest keeps the table file entries in one of seven sorted
+	///     arrays. Each of the seven arrays represents one "level" of table files. A user request for a key causes leveldb to
+	///     check each table file that overlaps the target key. leveldb searches each potential table file, level by level,
+	///     until finding the first that yields an exact match for requested key.
+	/// </summary>
 	public class ManifestReader : LogReader
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(ManifestReader));
 
-		public ManifestReader(Stream manifestStream) : base(manifestStream)
+		private readonly FileInfo _file;
+
+		public ManifestReader(FileInfo file, Stream manifestStream) : base(manifestStream)
 		{
+			_file = file;
 		}
 
 		public new byte[] Get(Span<byte> key)
@@ -56,6 +66,11 @@ namespace MiNET.LevelDB
 			foreach (var file in files)
 			{
 				//TODO: Get() value from file(s)
+				FileInfo f = new FileInfo(Path.Combine(_file.DirectoryName, $"{file.FileNumber:000000}.ldb"));
+				Log.Debug($"Opening table: {f.FullName}");
+				TableReader tableReader = new TableReader(f);
+				var result = tableReader.Get(key);
+				if (result != null) return result;
 			}
 
 			return null;

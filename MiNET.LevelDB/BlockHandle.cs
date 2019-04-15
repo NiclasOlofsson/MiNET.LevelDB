@@ -19,7 +19,15 @@ namespace MiNET.LevelDB
 			Length = length;
 		}
 
-		public byte[] ReadBlock(Stream stream, BlockHandle handle)
+		public static BlockHandle ReadBlockHandle(Stream stream)
+		{
+			ulong offset = stream.ReadVarint();
+			ulong length = stream.ReadVarint();
+
+			return new BlockHandle(offset, length);
+		}
+
+		public static byte[] ReadBlock(Stream stream, BlockHandle handle)
 		{
 			// File format contains a sequence of blocks where each block has:
 			//    block_data: uint8[n]
@@ -84,6 +92,11 @@ namespace MiNET.LevelDB
 		{
 			// Rotate right by 15 bits and add a constant.
 			return ((crc >> 15) | (crc << 17)) + MaskDelta;
+		}
+
+		public override string ToString()
+		{
+			return $"{nameof(Offset)}: {Offset}, {nameof(Length)}: {Length}";
 		}
 	}
 }

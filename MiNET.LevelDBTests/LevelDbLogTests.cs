@@ -26,18 +26,11 @@ namespace MiNET.LevelDBTests
 
 			Log.Debug($"Reading manifest from {manifestFilename}");
 
-			//"SmallestKey": {
-			//	"Key": "00 00 00 00 10 00 00 00 31 01 1f 34 00 00 00 00 00  ........1..4....."
-			//},
-			//"LargestKey": {
-			//	"Key": "ff ff ff ff fc ff ff ff 76 01 a7 42 00 00 00 00 00  ÿÿÿÿüÿÿÿv.§B....."
-			//}
-
-			var lookupKey = new byte[] {0x00, 0x00, 0x00, 0x00, 0x10, 0x01};
-
 			var fileStream = File.OpenRead($@"{directory}{manifestFilename}");
-			ManifestReader manifestReader = new ManifestReader(fileStream);
-			var result = manifestReader.Get(lookupKey);
+
+			ManifestReader manifestReader = new ManifestReader(new FileInfo($@"{directory}{manifestFilename}"), fileStream);
+			byte[] result = manifestReader.Get(new byte[] {0xfe, 0xff, 0xff, 0xff, 0xf1, 0xff, 0xff, 0xff, 0x2d, 0x01, 0x06, 0x39, 0x00, 0x00, 0x00, 0x00, 0x00,});
+			Assert.AreEqual(new byte[] {0x42, 0x0, 0x42, 0x0, 0x42}, result.AsSpan(0, 5).ToArray());
 		}
 
 		[Test]
@@ -60,7 +53,7 @@ namespace MiNET.LevelDBTests
 			Log.Debug($"Reading manifest from {manifestFilename}");
 
 			var fileStream = File.OpenRead($@"{directory}{manifestFilename}");
-			ManifestReader manifestReader = new ManifestReader(fileStream);
+			ManifestReader manifestReader = new ManifestReader(new FileInfo($@"{directory}{manifestFilename}"), fileStream);
 
 			string comparator = null;
 			ulong? logNumber = null;

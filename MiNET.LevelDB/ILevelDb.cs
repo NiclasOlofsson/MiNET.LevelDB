@@ -76,11 +76,6 @@ namespace MiNET.LevelDB
 		}
 	}
 
-	public class Footer
-	{
-		public static readonly byte[] Magic = {0x57, 0xfb, 0x80, 0x8b, 0x24, 0x75, 0x47, 0xdb};
-	}
-
 	public class InternalKey
 	{
 		public byte[] Key { get; }
