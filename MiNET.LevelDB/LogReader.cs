@@ -13,12 +13,14 @@ namespace MiNET.LevelDB
 		const int BlockSize = 32768; //TODO: This is the size of the blocks. Note they are padded. Use it!
 		const int HeaderSize = 4 + 2 + 1; // Max block size need to include space for header.
 
+		protected readonly FileInfo _file;
 		private Stream _logStream; // global log stream
 		private MemoryStream _blockStream; // Keep track of current block in a stream
 
-		public LogReader(Stream logStream)
+		public LogReader(FileInfo file)
 		{
-			_logStream = logStream;
+			_file = file;
+			_logStream = File.OpenRead(file.FullName);
 		}
 
 		public byte[] Get(Span<byte> key)
@@ -86,9 +88,10 @@ namespace MiNET.LevelDB
 			return null;
 		}
 
-		private void Reset()
+		protected void Reset()
 		{
 			_blockStream = null;
+			_logStream.Position = 0;
 			_logStream.Position = 0;
 		}
 

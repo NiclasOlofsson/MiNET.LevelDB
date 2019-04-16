@@ -1,21 +1,22 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using log4net;
 using Newtonsoft.Json;
 
 namespace MiNET.LevelDB
 {
-	public interface ILevelDb
+	public interface ILDb
 	{
 		DirectoryInfo Directory { get; }
 
-		void Delete(byte[] key);
+		void Delete(Span<byte> key);
 
-		void Put(byte[] key, byte[] value);
+		void Put(Span<byte> key, Span<byte> value);
 
-		byte[] Get(byte[] key);
+		byte[] Get(Span<byte> key);
 
-		List<String> GetDbKeysStartingWith(String startWith);
+		List<string> GetDbKeysStartingWith(string startWith);
 
 		void Open();
 
@@ -26,28 +27,32 @@ namespace MiNET.LevelDB
 		bool IsClosed();
 	}
 
-	class LevelDb : ILevelDb
+	public class LDb : ILDb
 	{
+		private static readonly ILog Log = LogManager.GetLogger(typeof(LDb));
+		private ManifestReader _manifestReader;
+
 		public DirectoryInfo Directory { get; }
 
-		public LevelDb(DirectoryInfo dbDirectory)
+		public LDb(DirectoryInfo dbDirectory)
 		{
 			Directory = dbDirectory;
 		}
 
-		public void Delete(byte[] key)
+		public void Delete(Span<byte> key)
 		{
 			throw new NotImplementedException();
 		}
 
-		public void Put(byte[] key, byte[] value)
+		public void Put(Span<byte> key, Span<byte> value)
 		{
 			throw new NotImplementedException();
 		}
 
-		public byte[] Get(byte[] key)
+		public byte[] Get(Span<byte> key)
 		{
-			throw new NotImplementedException();
+			if (_manifestReader == null) throw new Exception("No manifest");
+			return _manifestReader.Get(key);
 		}
 
 		public List<string> GetDbKeysStartingWith(string startWith)
@@ -57,7 +62,18 @@ namespace MiNET.LevelDB
 
 		public void Open()
 		{
-			throw new NotImplementedException();
+			// Verify that directory exists
+			if (!Directory.Exists) throw new DirectoryNotFoundException(Directory.Name);
+
+			// Read Manifest into memory
+
+			var manifestStream = File.OpenText($@"{Path.Combine(Directory.FullName, "CURRENT")}");
+			string manifestFilename = manifestStream.ReadLine();
+			manifestStream.Close();
+
+			Log.Debug($"Reading manifest from {Path.Combine(Directory.FullName, manifestFilename)}");
+
+			_manifestReader = new ManifestReader(new FileInfo($@"{Path.Combine(Directory.FullName, manifestFilename)}"));
 		}
 
 		public void Close()
@@ -108,7 +124,7 @@ namespace MiNET.LevelDB
 		public ulong? NextFileNumber { get; set; }
 		public ulong? LastSequenceNumber { get; set; }
 		public Dictionary<int, InternalKey> CompactPointers { get; set; } = new Dictionary<int, InternalKey>();
-		public Dictionary<int, ulong> DeletedFiles { get; set; } = new Dictionary<int, ulong>();
+		public Dictionary<int, List<ulong>> DeletedFiles { get; set; } = new Dictionary<int, List<ulong>>();
 		public Dictionary<int, List<FileMetadata>> NewFiles { get; set; } = new Dictionary<int, List<FileMetadata>>();
 	}
 

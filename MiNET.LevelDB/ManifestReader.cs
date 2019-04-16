@@ -17,11 +17,8 @@ namespace MiNET.LevelDB
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(ManifestReader));
 
-		private readonly FileInfo _file;
-
-		public ManifestReader(FileInfo file, Stream manifestStream) : base(manifestStream)
+		public ManifestReader(FileInfo file) : base(file)
 		{
-			_file = file;
 		}
 
 		public new byte[] Get(Span<byte> key)
@@ -78,82 +75,132 @@ namespace MiNET.LevelDB
 
 		public VersionEdit ReadVersionEdit()
 		{
-			Record record = ReadRecord();
-			if (record.LogRecordType != LogRecordType.Full) throw new Exception("Invalid manifest. Didn't find any records");
+			Reset();
 
-			var seek = new MemoryStream(record.Data);
+			string comparator = null;
+			ulong? logNumber = null;
+			ulong? previousLogNumber = null;
+			ulong? nextFileNumber = null;
+			ulong? lastSequenceNumber = null;
 
-			VersionEdit versionEdit = new VersionEdit();
+			VersionEdit finalVersion = new VersionEdit();
 
-			while (seek.Position < seek.Length)
+			while (true)
 			{
-				LogTagType logTag = (LogTagType) seek.ReadVarint();
-				switch (logTag)
-				{
-					case LogTagType.Comparator:
-					{
-						versionEdit.Comparator = seek.ReadLengthPrefixedString();
-						break;
-					}
-					case LogTagType.LogNumber:
-					{
-						versionEdit.LogNumber = seek.ReadVarint();
-						break;
-					}
-					case LogTagType.NextFileNumber:
-					{
-						versionEdit.NextFileNumber = seek.ReadVarint();
-						break;
-					}
-					case LogTagType.LastSequence:
-					{
-						versionEdit.LastSequenceNumber = seek.ReadVarint();
-						break;
-					}
-					case LogTagType.CompactPointer:
-					{
-						int level = (int) seek.ReadVarint();
-						InternalKey internalKey = new InternalKey(seek.ReadLengthPrefixedBytes());
-						versionEdit.CompactPointers[level] = internalKey;
-						break;
-					}
-					case LogTagType.DeletedFile:
-					{
-						int level = (int) seek.ReadVarint();
-						ulong fileNumber = seek.ReadVarint();
-						versionEdit.DeletedFiles[level] = fileNumber;
-						break;
-					}
-					case LogTagType.NewFile:
-					{
-						int level = (int) seek.ReadVarint();
-						ulong fileNumber = seek.ReadVarint();
-						ulong fileSize = seek.ReadVarint();
-						var smallest = new InternalKey(seek.ReadLengthPrefixedBytes());
-						var largest = new InternalKey(seek.ReadLengthPrefixedBytes());
+				Record record = ReadRecord();
 
-						FileMetadata fileMetadata = new FileMetadata();
-						fileMetadata.FileNumber = fileNumber;
-						fileMetadata.FileSize = fileSize;
-						fileMetadata.SmallestKey = smallest;
-						fileMetadata.LargestKey = largest;
-						if (!versionEdit.NewFiles.ContainsKey(level)) versionEdit.NewFiles[level] = new List<FileMetadata>();
-						versionEdit.NewFiles[level].Add(fileMetadata);
-						break;
-					}
-					case LogTagType.PrevLogNumber:
+				if (record.LogRecordType != LogRecordType.Full) break;
+
+				var seek = new MemoryStream(record.Data);
+
+				VersionEdit versionEdit = new VersionEdit();
+
+				while (seek.Position < seek.Length)
+				{
+					LogTagType logTag = (LogTagType) seek.ReadVarint();
+					switch (logTag)
 					{
-						versionEdit.PreviousLogNumber = seek.ReadVarint();
-						break;
+						case LogTagType.Comparator:
+						{
+							versionEdit.Comparator = seek.ReadLengthPrefixedString();
+							break;
+						}
+						case LogTagType.LogNumber:
+						{
+							versionEdit.LogNumber = seek.ReadVarint();
+							break;
+						}
+						case LogTagType.NextFileNumber:
+						{
+							versionEdit.NextFileNumber = seek.ReadVarint();
+							break;
+						}
+						case LogTagType.LastSequence:
+						{
+							versionEdit.LastSequenceNumber = seek.ReadVarint();
+							break;
+						}
+						case LogTagType.CompactPointer:
+						{
+							int level = (int) seek.ReadVarint();
+							InternalKey internalKey = new InternalKey(seek.ReadLengthPrefixedBytes());
+							versionEdit.CompactPointers[level] = internalKey;
+							break;
+						}
+						case LogTagType.DeletedFile:
+						{
+							int level = (int) seek.ReadVarint();
+							ulong fileNumber = seek.ReadVarint();
+							if (!versionEdit.DeletedFiles.ContainsKey(level)) versionEdit.DeletedFiles[level] = new List<ulong>();
+							versionEdit.DeletedFiles[level].Add(fileNumber);
+							if (!finalVersion.DeletedFiles.ContainsKey(level)) finalVersion.DeletedFiles[level] = new List<ulong>();
+							finalVersion.DeletedFiles[level].Add(fileNumber);
+							break;
+						}
+						case LogTagType.NewFile:
+						{
+							int level = (int) seek.ReadVarint();
+							ulong fileNumber = seek.ReadVarint();
+							ulong fileSize = seek.ReadVarint();
+							var smallest = new InternalKey(seek.ReadLengthPrefixedBytes());
+							var largest = new InternalKey(seek.ReadLengthPrefixedBytes());
+
+							FileMetadata fileMetadata = new FileMetadata();
+							fileMetadata.FileNumber = fileNumber;
+							fileMetadata.FileSize = fileSize;
+							fileMetadata.SmallestKey = smallest;
+							fileMetadata.LargestKey = largest;
+							if (!versionEdit.NewFiles.ContainsKey(level)) versionEdit.NewFiles[level] = new List<FileMetadata>();
+							versionEdit.NewFiles[level].Add(fileMetadata);
+							if (!finalVersion.NewFiles.ContainsKey(level)) finalVersion.NewFiles[level] = new List<FileMetadata>();
+							finalVersion.NewFiles[level].Add(fileMetadata);
+							break;
+						}
+						case LogTagType.PrevLogNumber:
+						{
+							versionEdit.PreviousLogNumber = seek.ReadVarint();
+							break;
+						}
+						default:
+						{
+							throw new ArgumentOutOfRangeException($"Unknown tag={logTag}");
+						}
 					}
-					default:
-					{
-						throw new ArgumentOutOfRangeException($"Unknown tag={logTag}");
-					}
+				}
+
+				versionEdit.CompactPointers = versionEdit.CompactPointers.Count == 0 ? null : versionEdit.CompactPointers;
+				versionEdit.DeletedFiles = versionEdit.DeletedFiles.Count == 0 ? null : versionEdit.DeletedFiles;
+				versionEdit.NewFiles = versionEdit.NewFiles.Count == 0 ? null : versionEdit.NewFiles;
+
+				comparator = versionEdit.Comparator ?? comparator;
+				logNumber = versionEdit.LogNumber ?? logNumber;
+				previousLogNumber = versionEdit.PreviousLogNumber ?? previousLogNumber;
+				nextFileNumber = versionEdit.NextFileNumber ?? nextFileNumber;
+				lastSequenceNumber = versionEdit.LastSequenceNumber ?? lastSequenceNumber;
+			}
+
+			// Clean files
+			List<ulong> deletedFiles = new List<ulong>();
+			foreach (var versionDeletedFile in finalVersion.DeletedFiles.Values)
+			{
+				deletedFiles.AddRange(versionDeletedFile);
+			}
+
+			foreach (var levelKvp in finalVersion.NewFiles)
+			{
+				foreach (var newFile in levelKvp.Value.ToArray())
+				{
+					if (deletedFiles.Contains(newFile.FileNumber)) levelKvp.Value.Remove(newFile);
 				}
 			}
 
-			return versionEdit;
+			finalVersion.Comparator = comparator;
+			finalVersion.LogNumber = logNumber;
+			finalVersion.PreviousLogNumber = previousLogNumber;
+			finalVersion.NextFileNumber = nextFileNumber;
+			finalVersion.LastSequenceNumber = lastSequenceNumber;
+
+			return finalVersion;
 		}
 
 		public static void Print(object obj)

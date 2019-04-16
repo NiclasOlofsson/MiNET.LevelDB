@@ -18,7 +18,7 @@ namespace MiNET.LevelDBTests
 		[Test]
 		public void LevelDbSearchManifestTest()
 		{
-			var directory = @"D:\Temp\My World\db\";
+			var directory = @"TestWorld\";
 
 			var currentStream = File.OpenText($@"{directory}CURRENT");
 			string manifestFilename = currentStream.ReadLine();
@@ -26,11 +26,11 @@ namespace MiNET.LevelDBTests
 
 			Log.Debug($"Reading manifest from {manifestFilename}");
 
-			var fileStream = File.OpenRead($@"{directory}{manifestFilename}");
+			// 08 01 02 00 00 01 00 00 00 00 00 00 00 00 00 00  ................
 
-			ManifestReader manifestReader = new ManifestReader(new FileInfo($@"{directory}{manifestFilename}"), fileStream);
-			byte[] result = manifestReader.Get(new byte[] {0xfe, 0xff, 0xff, 0xff, 0xf1, 0xff, 0xff, 0xff, 0x2d, 0x01, 0x06, 0x39, 0x00, 0x00, 0x00, 0x00, 0x00,});
-			Assert.AreEqual(new byte[] {0x42, 0x0, 0x42, 0x0, 0x42}, result.AsSpan(0, 5).ToArray());
+			ManifestReader manifestReader = new ManifestReader(new FileInfo($@"{directory}{manifestFilename}"));
+			byte[] result = manifestReader.Get(new byte[] {0xf7, 0xff, 0xff, 0xff, 0xfd, 0xff, 0xff, 0xff, 0x2f, 0x05, 0x01, 0x9f, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00});
+			Assert.AreEqual(new byte[] {0x08, 0x01, 0x02, 0x0, 0x0}, result.AsSpan(0, 5).ToArray());
 		}
 
 		[Test]
@@ -44,7 +44,8 @@ namespace MiNET.LevelDBTests
 
 			//var directory = @"D:\Temp\World Saves PE\WoUIAK-EAQA=\db\";
 			//var directory = @"D:\Temp\World Saves PE\ExoGAHavAAA=\db\";
-			var directory = @"D:\Temp\My World\db\";
+			//var directory = @"D:\Temp\My World\db\";
+			var directory = @"TestWorld\";
 
 			var currentStream = File.OpenText($@"{directory}CURRENT");
 			string manifestFilename = currentStream.ReadLine();
@@ -52,14 +53,15 @@ namespace MiNET.LevelDBTests
 
 			Log.Debug($"Reading manifest from {manifestFilename}");
 
-			var fileStream = File.OpenRead($@"{directory}{manifestFilename}");
-			ManifestReader manifestReader = new ManifestReader(new FileInfo($@"{directory}{manifestFilename}"), fileStream);
+			ManifestReader manifestReader = new ManifestReader(new FileInfo($@"{directory}{manifestFilename}"));
 
 			string comparator = null;
 			ulong? logNumber = null;
 			ulong? previousLogNumber = null;
 			ulong? nextFileNumber = null;
 			ulong? lastSequenceNumber = null;
+
+			VersionEdit finalVersion = new VersionEdit();
 
 			while (true)
 			{
@@ -108,7 +110,10 @@ namespace MiNET.LevelDBTests
 						{
 							int level = (int) seek.ReadVarint();
 							ulong fileNumber = seek.ReadVarint();
-							versionEdit.DeletedFiles[level] = fileNumber;
+							if (!versionEdit.DeletedFiles.ContainsKey(level)) versionEdit.DeletedFiles[level] = new List<ulong>();
+							versionEdit.DeletedFiles[level].Add(fileNumber);
+							if (!finalVersion.DeletedFiles.ContainsKey(level)) finalVersion.DeletedFiles[level] = new List<ulong>();
+							finalVersion.DeletedFiles[level].Add(fileNumber);
 							break;
 						}
 						case LogTagType.NewFile:
@@ -126,6 +131,8 @@ namespace MiNET.LevelDBTests
 							fileMetadata.LargestKey = largest;
 							if (!versionEdit.NewFiles.ContainsKey(level)) versionEdit.NewFiles[level] = new List<FileMetadata>();
 							versionEdit.NewFiles[level].Add(fileMetadata);
+							if (!finalVersion.NewFiles.ContainsKey(level)) finalVersion.NewFiles[level] = new List<FileMetadata>();
+							finalVersion.NewFiles[level].Add(fileMetadata);
 							break;
 						}
 						case LogTagType.PrevLogNumber:
@@ -155,15 +162,26 @@ namespace MiNET.LevelDBTests
 				Log.Debug("------------------------------------------------------------");
 			}
 
-			VersionEdit finalVersion = new VersionEdit();
+			// Clean files
+			List<ulong> deletedFiles = new List<ulong>();
+			foreach (var versionDeletedFile in finalVersion.DeletedFiles.Values)
+			{
+				deletedFiles.AddRange(versionDeletedFile);
+			}
+
+			foreach (var levelKvp in finalVersion.NewFiles)
+			{
+				foreach (var newFile in levelKvp.Value.ToArray())
+				{
+					if (deletedFiles.Contains(newFile.FileNumber)) levelKvp.Value.Remove(newFile);
+				}
+			}
+
 			finalVersion.Comparator = comparator;
 			finalVersion.LogNumber = logNumber;
 			finalVersion.PreviousLogNumber = previousLogNumber;
 			finalVersion.NextFileNumber = nextFileNumber;
 			finalVersion.LastSequenceNumber = lastSequenceNumber;
-			finalVersion.CompactPointers = null;
-			finalVersion.DeletedFiles = null;
-			finalVersion.NewFiles = null;
 
 			Log.Debug("============================================================");
 			Print(finalVersion);
@@ -189,10 +207,9 @@ namespace MiNET.LevelDBTests
 		{
 			// https://github.com/google/leveldb/blob/master/doc/log_format.md
 
-			var filestream = File.OpenRead(@"D:\Temp\World Saves PE\ExoGAHavAAA=\db\000341.log");
+			LogReader logReader = new LogReader(new FileInfo(@"TestWorld\000047.log"));
 
-			LogReader logReader = new LogReader(filestream);
-			byte[] result = logReader.Get(new byte[] {0xfc, 0xff, 0xff, 0xff, 0xf3, 0xff, 0xff, 0xff, 0x31,});
+			byte[] result = logReader.Get(new byte[] {0xeb, 0xff, 0xff, 0xff, 0xf3, 0xff, 0xff, 0xff, 0x31});
 
 			Assert.NotNull(result);
 			Assert.AreEqual(new byte[] {0xA, 0x00, 0x00, 0x02, 0x05}, result.AsSpan(0, 5).ToArray());
@@ -203,10 +220,9 @@ namespace MiNET.LevelDBTests
 		{
 			// https://github.com/google/leveldb/blob/master/doc/log_format.md
 
-			var filestream = File.OpenRead(@"D:\Temp\World Saves PE\ExoGAHavAAA=\db\000341.log");
 			//var filestream = File.OpenRead(@"D:\Temp\My World\db\000028.log");
 
-			LogReader logReader = new LogReader(filestream);
+			LogReader logReader = new LogReader(new FileInfo(@"TestWorld\000047.log"));
 
 			BytewiseComparator comparator = new BytewiseComparator();
 
@@ -233,8 +249,9 @@ namespace MiNET.LevelDBTests
 					byte[] currentKey = new byte[v1];
 					datareader.Read(currentKey, 0, (int) v1);
 
-					// CurrentKey = fc ff ff ff f3 ff ff ff 31
-					if (comparator.Compare(new byte[] {0xfc, 0xff, 0xff, 0xff, 0xf3, 0xff, 0xff, 0xff, 0x31,}, currentKey) == 0)
+					//CurrentKey = f5 ff ff ff eb ff ff ff 36
+
+					if (comparator.Compare(new byte[] {0xf5, 0xff, 0xff, 0xff, 0xeb, 0xff, 0xff, 0xff, 0x36}, currentKey) == 0)
 					{
 						Assert.False(found);
 						found = true;

@@ -24,20 +24,14 @@ namespace MiNET.LevelDBTests
 		[Test]
 		public void LevelDbReadFindInTableTest()
 		{
-			//foreach (var file in Directory.EnumerateFiles(@"D:\Temp\My World\db", "*.ldb"))
+			FileInfo fileInfo = new FileInfo(@"TestWorld\000050.ldb");
+			TableReader table = new TableReader(fileInfo);
+
+			var result = table.Get(new byte[] {0xf6, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x2f, 0x00, 0x01, 0xea, 0x13, 0x00, 0x00, 0x00, 0x00, 0x00});
+			if (result != null)
 			{
-				//2019 - 04 - 15 22:18:19,001[NonParallelWorker] INFO MiNET.LevelDBTests.LevelDbTableTests - Reading sstable: D:\Temp\My World\db\000022.ldb
-
-				FileInfo fileInfo = new FileInfo(@"D:\Temp\My World\db\000022.ldb");
-				TableReader table = new TableReader(fileInfo);
-				// Key=(+4) fe ff ff ff f1 ff ff ff 2d 01 06 39 00 00 00 00 00
-
-				var result = table.Get(new byte[] {0xfe, 0xff, 0xff, 0xff, 0xf1, 0xff, 0xff, 0xff, 0x2d, 0x01, 0x06, 0x39, 0x00, 0x00, 0x00, 0x00, 0x00,});
-				if (result != null)
-				{
-					Log.Debug("Result:\n" + result.HexDump(cutAfterFive: true));
-					return;
-				}
+				Log.Debug("Result:\n" + result.HexDump(cutAfterFive: true));
+				return;
 			}
 
 			Assert.Fail("Found no entry");
@@ -46,8 +40,7 @@ namespace MiNET.LevelDBTests
 		[Test]
 		public void LevelDbReadTableTest()
 		{
-			//foreach (var file in Directory.EnumerateFiles(@"D:\Temp\World Saves PE\ExoGAHavAAA=\db", "*.ldb"))
-			foreach (var file in Directory.EnumerateFiles(@"D:\Temp\My World\db", "*.ldb"))
+			foreach (var file in Directory.EnumerateFiles(@"TestWorld", "*.ldb"))
 			{
 				Log.Info($"Reading sstable: {file}");
 
@@ -167,6 +160,9 @@ namespace MiNET.LevelDBTests
 				// restarts[i] contains the offset within the block of the ith restart point.
 
 				Log.Debug($"\nKey=(+{sharedBytes}) {combinedKey.ToArray().HexDump(bytesPerLine: combinedKey.Length, cutAfterFive: true)}\n{value.HexDump(cutAfterFive: true)}");
+
+				string hexKey = "new byte[] {0x" + combinedKey.ToArray().HexDump(bytesPerLine: combinedKey.Length, printText: false, cutAfterFive: true).Trim().Replace(" ", ", 0x") + "},";
+				Log.Debug($"\n{hexKey}");
 
 				//if (!_indicatorChars.Contains(keyDelta[0]))
 				//{

@@ -9,6 +9,6 @@ namespace MiNET.LevelDB
 		 * @param dbFolder The root path of the database folder.
 		 * @return An object with database controls as specified in {@link ILevelDB}.
 		 */
-		public abstract ILevelDb LoadLevelDb(DirectoryInfo dbFolder);
+		public abstract ILDb LoadLevelDb(DirectoryInfo dbFolder);
 	}
 }
