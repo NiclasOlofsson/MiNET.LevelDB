@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using log4net;
 
 namespace MiNET.LevelDB
@@ -12,6 +13,7 @@ namespace MiNET.LevelDB
 
 		private readonly FileInfo _file;
 		private byte[] _blockIndex;
+		private byte[] _metaIndex;
 
 		public TableReader(FileInfo file)
 		{
@@ -39,22 +41,83 @@ namespace MiNET.LevelDB
 
 			using (var fileStream = _file.OpenRead())
 			{
-				//TODO: Get filter block and do Bloom search first
+				Footer footer = Footer.Read(fileStream);
 
 				// Search block index
 				if (_blockIndex == null)
 				{
-					Footer footer = Footer.Read(fileStream);
 					_blockIndex = BlockHandle.ReadBlock(fileStream, footer.BlockIndexBlockHandle);
 				}
 
-				BlockHandle handle = FindBlockHandleInBlockIndex(key);
-				if (handle == null) return null;
+				{
+					BlockHandle handle = FindBlockHandleInBlockIndex(key);
+					if (handle == null) return null;
 
-				var targetBlock = BlockHandle.ReadBlock(fileStream, handle);
-				return FindEntryInBlockData(key, targetBlock);
+					//TODO: Get filter block and do Bloom search first
+					if (_metaIndex == null)
+					{
+						_metaIndex = BlockHandle.ReadBlock(fileStream, footer.MetaindexBlockHandle);
+					}
+
+					{
+						var filters = GetFilters();
+						if (filters.TryGetValue("filter.leveldb.BuiltinBloomFilter2", out BlockHandle filterHandle))
+						{
+							var filterBlock = BlockHandle.ReadBlock(fileStream, filterHandle);
+							Log.Debug("\n" + filterBlock.HexDump(cutAfterFive: true));
+
+							BloomFilterPolicy policy = new BloomFilterPolicy();
+							policy.Parse(filterBlock);
+							if (!policy.KeyMayMatch(key, handle.Offset))
+							{
+								Log.Warn("Failed match with bloom filter");
+								return null;
+							}
+							else
+							{
+								Log.Warn("Found maybe match in bloom filter");
+							}
+						}
+						else
+						{
+							Log.Error("No filters defined");
+							throw new Exception("No filters defined");
+						}
+					}
+
+
+					var targetBlock = BlockHandle.ReadBlock(fileStream, handle);
+					return FindEntryInBlockData(key, targetBlock);
+				}
 			}
 		}
+
+		private Dictionary<string, BlockHandle> GetFilters()
+		{
+			var result = new Dictionary<string, BlockHandle>();
+
+			MemoryStream stream = new MemoryStream(_metaIndex);
+			int indexSize = GetRestartIndexSize(stream);
+
+			while (stream.Position < stream.Length - indexSize)
+			{
+				int n1 = (int) stream.ReadVarint();
+				int n2 = (int) stream.ReadVarint();
+				int n3 = (int) stream.ReadVarint();
+
+				byte[] keyData = new byte[n2];
+				stream.Read(keyData, n1, n2);
+
+				var filterHandle = BlockHandle.ReadBlockHandle(stream);
+
+				Log.Debug($"Key={Encoding.UTF8.GetString(keyData)}, BlockHandle={filterHandle}");
+
+				result.Add(Encoding.UTF8.GetString(keyData), filterHandle);
+			}
+
+			return result;
+		}
+
 
 		private BlockHandle FindBlockHandleInBlockIndex(Span<byte> key)
 		{

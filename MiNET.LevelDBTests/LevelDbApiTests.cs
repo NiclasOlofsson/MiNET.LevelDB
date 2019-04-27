@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using log4net;
 using MiNET.LevelDB;
 using NUnit.Framework;
 
@@ -10,6 +11,15 @@ namespace MiNET.LevelDBTests
 	[TestFixture]
 	public class LevelDbApiTests
 	{
+		private static readonly ILog Log = LogManager.GetLogger(typeof(LevelDbApiTests));
+
+		[SetUp]
+		public void Init()
+		{
+			Log.Info($" ************************ RUNNING TEST: {TestContext.CurrentContext.Test.Name} ****************************** ");
+		}
+
+
 		//DirectoryInfo directory = new DirectoryInfo(@"D:\Temp\My World\db\");
 		DirectoryInfo directory = new DirectoryInfo(@"TestWorld");
 
