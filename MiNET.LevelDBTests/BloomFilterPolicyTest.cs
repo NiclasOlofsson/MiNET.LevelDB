@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text;
 using log4net;
@@ -11,15 +12,15 @@ namespace MiNET.LevelDBTests
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(BloomFilterPolicyTest));
 
-		public static int BLOOM_BITS = 10;
-		private byte[] filter = new byte[0];
-		private List<byte[]> keys = new List<byte[]>();
-		private BloomFilterPolicy policy = new BloomFilterPolicy(BLOOM_BITS);
-
+		public static readonly int BLOOM_BITS = 10;
+		private byte[] _filter = new byte[0];
+		private List<byte[]> _keys = new List<byte[]>();
+		private BloomFilterPolicy _policy = new BloomFilterPolicy(BLOOM_BITS);
 
 		[Test]
 		public void EmptyBloom()
 		{
+			Assert.IsTrue(!Matches(""));
 			Assert.IsTrue(!Matches("hello"));
 			Assert.IsTrue(!Matches("world"));
 		}
@@ -45,25 +46,27 @@ namespace MiNET.LevelDBTests
 			for (int length = 1; length <= 10000; length = NextLength(length))
 			{
 				Reset();
+
 				for (uint i = 0; i < length; i++)
 				{
-					keys.Add(IntToBytes(i));
+					_keys.Add(BitConverter.GetBytes(i));
 				}
+
 				Build();
 
-				Assert.LessOrEqual(filter.Length, (length*BLOOM_BITS/8) + 40);
+				Assert.LessOrEqual(_filter.Length, (length*BLOOM_BITS/8) + 40);
 
 				// All added keys must match
 				for (uint i = 0; i < length; i++)
 				{
-					Assert.IsTrue(Matches(IntToBytes(i)));
+					Assert.IsTrue(Matches(BitConverter.GetBytes(i)));
 				}
 
 				// Check false positive rate
 				double rate = FalsePositiveRate();
-				Log.Debug($"False positives: {rate*100.0}%5.2f%% @ length = {length} %6d ; bytes = {filter.Length}%6d");
+				Log.Debug($"False positives: {rate*100.0}%, length={length}, bytesLength={_filter.Length}");
 
-				//Assert.LessOrEqual(rate, 0.02);
+				Assert.LessOrEqual(rate, 0.02);
 				if (rate > 0.0125)
 				{
 					mediocreFilters++; // Allowed, but not too often
@@ -73,8 +76,8 @@ namespace MiNET.LevelDBTests
 					goodFilters++;
 				}
 			}
+
 			Log.Debug($"Filters: {goodFilters} good, {mediocreFilters} mediocre\n");
-			//Assert.IsTrue(mediocreFilters <= goodFilters/5);
 			Assert.LessOrEqual(mediocreFilters, goodFilters);
 		}
 
@@ -105,22 +108,12 @@ namespace MiNET.LevelDBTests
 			int result = 0;
 			for (uint i = 0; i < 10000; i++)
 			{
-				if (Matches(IntToBytes((i + 1000000000))))
+				if (Matches(BitConverter.GetBytes(i + 1000000000)))
 				{
 					result++;
 				}
 			}
 			return result/10000.0;
-		}
-
-		private byte[] IntToBytes(uint value)
-		{
-			byte[] buffer = new byte[4];
-			buffer[0] = (byte) (value);
-			buffer[1] = (byte) (value >> 8);
-			buffer[2] = (byte) (value >> 16);
-			buffer[3] = (byte) (value >> 24);
-			return buffer;
 		}
 
 		private static int NextLength(int length)
@@ -146,7 +139,7 @@ namespace MiNET.LevelDBTests
 
 		private void Add(string value)
 		{
-			keys.Add(GetBytes(value));
+			_keys.Add(GetBytes(value));
 		}
 
 		private byte[] GetBytes(string s)
@@ -162,30 +155,25 @@ namespace MiNET.LevelDBTests
 
 		private bool Matches(byte[] s)
 		{
-			if (keys.Count != 0)
+			if (_keys.Count != 0)
 			{
 				Build();
 			}
-			return policy.KeyMayMatch(s, filter);
+			return _policy.KeyMayMatch(s, _filter);
 		}
 
 
 		private void Reset()
 		{
-			keys.Clear();
-			filter = new byte[0];
+			_keys.Clear();
+			_filter = new byte[0];
 		}
 
 
 		private void Build()
 		{
-			List<byte[]> keySlices = new List<byte[]>();
-			for (int i = 0; i < keys.Count; i++)
-			{
-				keySlices.Add(keys[i]);
-			}
-			filter = policy.CreateFilter(keySlices);
-			keys.Clear();
+			_filter = _policy.CreateFilter(_keys);
+			_keys.Clear();
 		}
 	}
 }

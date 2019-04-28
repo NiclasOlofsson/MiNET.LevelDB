@@ -178,13 +178,13 @@ namespace MiNET.LevelDB
 				byte[] value = new byte[valueLength];
 				stream.Read(value, 0, (int) valueLength);
 
-				Log.Debug($"\nKey=(+{sharedBytes}) {combinedKey.ToArray().HexDump(bytesPerLine: combinedKey.Length, cutAfterFive: true)}\n{value.HexDump(cutAfterFive: true)}");
+				Log.Debug($"\nKey=(+{sharedBytes}) {combinedKey.ToArray().HexDump(bytesPerLine: combinedKey.Length, cutAfterFive: true, printText:false)}\n{value.HexDump(cutAfterFive: true)}");
 
 				var comparator = new BytewiseComparator();
-				if (comparator.Compare(key, combinedKey) == 0)
+				if (comparator.Compare(key, combinedKey) <= 0)
 				{
-					//byte[] value = new byte[valueLength];
-					//stream.Read(value, 0, (int)valueLength);
+					Log.Debug($"\nSearch Key={key.ToArray().HexDump(bytesPerLine: combinedKey.Length, cutAfterFive: true, printText: false)}");
+
 					return value;
 				}
 				else

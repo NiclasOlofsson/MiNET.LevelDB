@@ -67,7 +67,7 @@ namespace MiNET.LevelDB
 			var start = BitConverter.ToInt32(_filterBlock.Slice(_startOffsetArray + index*sizeof(int), 4).Span);
 			var limit = BitConverter.ToInt32(_filterBlock.Slice(_startOffsetArray + index*sizeof(int) + sizeof(int), 4).Span);
 
-			if (start > limit || limit > _filterBlock.Length)
+			if (start > limit || start + limit > _filterBlock.Length)
 				return false; // empty filters do no match any keys
 
 			return KeyMayMatch(key, _filterBlock.Slice(start, limit).Span);
