@@ -29,8 +29,10 @@ namespace MiNET.LevelDB
 			// - footer
 		}
 
-		public byte[] Get(Span<byte> key)
+		public ResultStatus Get(Span<byte> key)
 		{
+			Log.Debug($"\nSearch Key={key.ToHexString()}");
+
 			// To find a key in the table you:
 			// 1) Read the block index. This index have one entry for each block in the file. For each entry it holds the
 			//    last index and a block handle for the block. Binary search this and find the correct block.
@@ -41,54 +43,38 @@ namespace MiNET.LevelDB
 
 			using (var fileStream = _file.OpenRead())
 			{
-				Footer footer = Footer.Read(fileStream);
-
 				// Search block index
-				if (_blockIndex == null)
+				if (_blockIndex == null || _metaIndex == null)
 				{
+					Footer footer = Footer.Read(fileStream);
 					_blockIndex = BlockHandle.ReadBlock(fileStream, footer.BlockIndexBlockHandle);
+					_metaIndex = BlockHandle.ReadBlock(fileStream, footer.MetaindexBlockHandle);
 				}
 
+				BlockHandle handle = FindBlockHandleInBlockIndex(key);
+				if (handle == null)
 				{
-					BlockHandle handle = FindBlockHandleInBlockIndex(key);
-					if (handle == null) return null;
-
-					//TODO: Get filter block and do Bloom search first
-					if (_metaIndex == null)
-					{
-						_metaIndex = BlockHandle.ReadBlock(fileStream, footer.MetaindexBlockHandle);
-					}
-
-					{
-						var filters = GetFilters();
-						if (filters.TryGetValue("filter.leveldb.BuiltinBloomFilter2", out BlockHandle filterHandle))
-						{
-							var filterBlock = BlockHandle.ReadBlock(fileStream, filterHandle);
-							Log.Debug("\n" + filterBlock.HexDump(cutAfterFive: true));
-
-							BloomFilterPolicy policy = new BloomFilterPolicy();
-							policy.Parse(filterBlock);
-							if (!policy.KeyMayMatch(key, handle.Offset))
-							{
-								Log.Warn("Failed match with bloom filter");
-								return null;
-							}
-							else
-							{
-								Log.Warn("Found maybe match in bloom filter");
-							}
-						}
-						else
-						{
-							Log.Error("No filters defined");
-							throw new Exception("No filters defined");
-						}
-					}
-
-
-					var targetBlock = BlockHandle.ReadBlock(fileStream, handle);
-					return FindEntryInBlockData(key, targetBlock);
+					Log.Error($"Expected to find block, but did not");
+					return ResultStatus.NotFound;
 				}
+
+				var filters = GetFilters();
+				if (filters.TryGetValue("filter.leveldb.BuiltinBloomFilter2", out BlockHandle filterHandle))
+				{
+					var filterBlock = BlockHandle.ReadBlock(fileStream, filterHandle);
+					if (Log.IsDebugEnabled) Log.Debug("\n" + filterBlock.HexDump(cutAfterFive: true));
+
+					BloomFilterPolicy policy = new BloomFilterPolicy();
+					policy.Parse(filterBlock);
+					if (!policy.KeyMayMatch(key, handle.Offset))
+					{
+						Log.Warn("Failed match with bloom filter");
+						return ResultStatus.NotFound;
+					}
+				}
+
+				var targetBlock = BlockHandle.ReadBlock(fileStream, handle);
+				return FindEntryInBlockData(key, targetBlock);
 			}
 		}
 
@@ -138,13 +124,13 @@ namespace MiNET.LevelDB
 				handle = BlockHandle.ReadBlockHandle(stream);
 
 				var comparator = new BytewiseComparator();
-				if (comparator.Compare(key, keyData) <= 0) return handle;
+				if (comparator.Compare(key, keyData.UserKey()) <= 0) return handle;
 			}
 
 			return null;
 		}
 
-		private byte[] FindEntryInBlockData(Span<byte> key, byte[] blockdata)
+		private ResultStatus FindEntryInBlockData(Span<byte> key, byte[] blockdata)
 		{
 			Stream stream = new MemoryStream(blockdata);
 
@@ -178,30 +164,36 @@ namespace MiNET.LevelDB
 				byte[] value = new byte[valueLength];
 				stream.Read(value, 0, (int) valueLength);
 
-				Log.Debug($"\nKey=(+{sharedBytes}) {combinedKey.ToArray().HexDump(bytesPerLine: combinedKey.Length, cutAfterFive: true, printText:false)}\n{value.HexDump(cutAfterFive: true)}");
+				var number = BitConverter.ToUInt64(combinedKey.Slice(combinedKey.Length - 8, 8));
+				var sequence = number >> 8;
+				var keyType = (byte) number;
+
+				if (Log.IsDebugEnabled) Log.Debug($"\nKey=(+{sharedBytes}) {combinedKey.ToHexString()}\n{value.HexDump(cutAfterFive: true)}");
 
 				var comparator = new BytewiseComparator();
-				if (comparator.Compare(key, combinedKey) <= 0)
+				if (keyType == 0 && comparator.Compare(key, combinedKey.UserKey()) == 0)
 				{
-					Log.Debug($"\nSearch Key={key.ToArray().HexDump(bytesPerLine: combinedKey.Length, cutAfterFive: true, printText: false)}");
+					Log.Warn($"Found deleted entry for Key=(+{sharedBytes}) {combinedKey.ToHexString()}" +
+							$"\nSearch Key={key.ToHexString()}");
+				}
 
-					return value;
+				if (keyType == 1 && comparator.Compare(key, combinedKey.UserKey()) == 0)
+				{
+					if (Log.IsDebugEnabled)
+						Log.Debug($"\nFound key={combinedKey.ToHexString()}" +
+								$"\nSearch Key={key.ToHexString()}");
+
+					return new ResultStatus(ResultState.Exist, value);
 				}
 				else
 				{
+					//TODO: Fix and use this when we don't need to debug so much
 					// Skip entry data
 					//stream.Seek((long) valueLength, SeekOrigin.Current);
 				}
-
-				// shared_bytes == 0 for restart points.
-				//
-				// The trailer of the block has the form:
-				//     restarts: uint32[num_restarts]
-				//     num_restarts: uint32
-				// restarts[i] contains the offset within the block of the ith restart point.
 			}
 
-			return null;
+			return ResultStatus.NotFound;
 		}
 
 		private List<uint> GetRestartOffsets(Stream stream)

@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using System.IO.Compression;
-using Crc32C;
+using Force.Crc32;
 using log4net;
 
 namespace MiNET.LevelDB

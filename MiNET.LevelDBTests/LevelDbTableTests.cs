@@ -27,10 +27,10 @@ namespace MiNET.LevelDBTests
 			FileInfo fileInfo = new FileInfo(@"TestWorld\000050.ldb");
 			TableReader table = new TableReader(fileInfo);
 
-			var result = table.Get(new byte[] {0xf6, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x2f, 0x00, });
-			if (result != null)
+			var result = table.Get(new byte[] {0xf6, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x2f, 0x00,});
+			if (result.Data != null)
 			{
-				Log.Debug("Result:\n" + result.HexDump(cutAfterFive: true));
+				if (Log.IsDebugEnabled) Log.Debug("Result:\n" + result.Data.HexDump(cutAfterFive: true));
 				return;
 			}
 
@@ -53,14 +53,14 @@ namespace MiNET.LevelDBTests
 				BlockHandle indexHandle = footer.BlockIndexBlockHandle;
 
 				byte[] metaIndexBlock = BlockHandle.ReadBlock(fileStream, metaIndexHandle);
-				Log.Debug("\n" + metaIndexBlock.HexDump());
+				if (Log.IsDebugEnabled) Log.Debug("\n" + metaIndexBlock.HexDump());
 
 				var keyValues = GetKeyValues(metaIndexBlock);
 				if (keyValues.TryGetValue("filter.leveldb.BuiltinBloomFilter2", out BlockHandle filterHandle))
 				{
 					var filterBlock = BlockHandle.ReadBlock(fileStream, filterHandle);
 					Assert.NotNull(filterBlock);
-					Log.Debug("\n" + filterBlock.HexDump(cutAfterFive: true));
+					if (Log.IsDebugEnabled) Log.Debug("\n" + filterBlock.HexDump(cutAfterFive: true));
 				}
 
 				//MemoryStream filterIndex = new MemoryStream(keyValue.Value);
@@ -159,10 +159,9 @@ namespace MiNET.LevelDBTests
 				//     num_restarts: uint32
 				// restarts[i] contains the offset within the block of the ith restart point.
 
-				Log.Debug($"\nKey=(+{sharedBytes}) {combinedKey.ToArray().HexDump(bytesPerLine: combinedKey.Length, cutAfterFive: true)}\n{value.HexDump(cutAfterFive: true)}");
+				if (Log.IsDebugEnabled) Log.Debug($"\nKey=(+{sharedBytes}) {combinedKey.ToArray().HexDump(bytesPerLine: combinedKey.Length, cutAfterFive: true)}\n{value.HexDump(cutAfterFive: true)}");
 
-				string hexKey = "new byte[] {0x" + combinedKey.ToArray().HexDump(bytesPerLine: combinedKey.Length, printText: false, cutAfterFive: true).Trim().Replace(" ", ", 0x") + "},";
-				Log.Debug($"\n{hexKey}");
+				if (Log.IsDebugEnabled) Log.Debug($"\n{"new byte[] {0x" + combinedKey.ToArray().HexDump(bytesPerLine: combinedKey.Length, printText: false, cutAfterFive: true).Trim().Replace(" ", ", 0x") + "},"}");
 
 				//if (!_indicatorChars.Contains(keyDelta[0]))
 				//{
@@ -228,7 +227,7 @@ namespace MiNET.LevelDBTests
 
 					// Key=1, Offset=17, Lenght=3, 
 					// CurrentKey = <00 00 00 00> <16 00 00 00> <30> 01 d1 c2 00 00 00 00 00
-					Log.Debug($"Key={key}, v1={v1}, v2={v2}\nCurrentKey={currentKey.HexDump(currentKey.Length, false, false)}\nCurrentVal={currentVal.HexDump(currentVal.Length, false, false)} ");
+					if (Log.IsDebugEnabled) Log.Debug($"Key={key}, v1={v1}, v2={v2}\nCurrentKey={currentKey.HexDump(currentKey.Length, false, false)}\nCurrentVal={currentVal.HexDump(currentVal.Length, false, false)} ");
 
 					if (!_indicatorChars.Contains(currentKey[0]))
 					{
@@ -241,7 +240,7 @@ namespace MiNET.LevelDBTests
 						Stream file = reader.Data;
 						var block = BlockHandle.ReadBlock(file, blockHandle);
 						Log.Debug($"Offset={blockHandle.Offset}, Len={blockHandle.Length}");
-						Log.Debug($"Offset={blockHandle.Offset}, Len={block.Length} (uncompressed)\n{block.Take(16*10).ToArray().HexDump()}");
+						if (Log.IsDebugEnabled) Log.Debug($"Offset={blockHandle.Offset}, Len={block.Length} (uncompressed)\n{block.Take(16*10).ToArray().HexDump()}");
 						ParseMcpeBlockData(mcpeKey, block);
 					}
 					else
@@ -251,7 +250,7 @@ namespace MiNET.LevelDBTests
 						var blockHandle = BlockHandle.ReadBlockHandle(new MemoryStream(currentVal));
 						Stream file = reader.Data;
 						var block = BlockHandle.ReadBlock(file, blockHandle);
-						Log.Debug($"Offset={blockHandle.Offset}, Len={blockHandle.Length}\n{block.Take(16*10).ToArray().HexDump()}");
+						if (Log.IsDebugEnabled) Log.Debug($"Offset={blockHandle.Offset}, Len={blockHandle.Length}\n{block.Take(16*10).ToArray().HexDump()}");
 					}
 				}
 				else

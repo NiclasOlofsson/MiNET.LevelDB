@@ -59,18 +59,25 @@ namespace MiNET.LevelDB
 
 		public bool KeyMayMatch(Span<byte> key, ulong position)
 		{
-			var num = (_filterBlock.Length - 5)/sizeof(int);
+			var num = (_filterBlock.Length - 5 - _startOffsetArray)/sizeof(int);
 			int index = (int) (position >> _baseLg);
-			if (index > num) return false; // Maybe even on errors
+			if (index >= num)
+			{
+				throw new Exception();
+				return true; // Maybe even on errors
+			}
 
 
 			var start = BitConverter.ToInt32(_filterBlock.Slice(_startOffsetArray + index*sizeof(int), 4).Span);
 			var limit = BitConverter.ToInt32(_filterBlock.Slice(_startOffsetArray + index*sizeof(int) + sizeof(int), 4).Span);
 
-			if (start > limit || start + limit > _filterBlock.Length)
+			if (start > limit || limit > _filterBlock.Length)
+			{
+				throw new Exception();
 				return false; // empty filters do no match any keys
+			}
 
-			return KeyMayMatch(key, _filterBlock.Slice(start, limit).Span);
+			return KeyMayMatch(key, _filterBlock.Slice(start, limit - start).Span);
 		}
 
 		public bool KeyMayMatch(Span<byte> key, Span<byte> data)

@@ -26,10 +26,12 @@ namespace MiNET.LevelDBTests
 			Assert.AreEqual(Greater, comparator.Compare(new Span<byte>(new byte[] {1}), new Span<byte>(new byte[] {0})));
 			Assert.AreEqual(Greater, comparator.Compare(new Span<byte>(new byte[] {1, 1}), new Span<byte>(new byte[] {1, 0})));
 			Assert.AreEqual(Greater, comparator.Compare(new Span<byte>(new byte[] {1, 1}), new Span<byte>(new byte[] {1, 0, 1})));
+			Assert.AreEqual(Greater, comparator.Compare(new Span<byte>(new byte[] {1, 1, 1}), new Span<byte>(new byte[] {1, 1})));
 
 			Assert.AreEqual(Less, comparator.Compare(new Span<byte>(new byte[] {0}), new Span<byte>(new byte[] {1})));
 			Assert.AreEqual(Less, comparator.Compare(new Span<byte>(new byte[] {1, 0}), new Span<byte>(new byte[] {1, 1})));
 			Assert.AreEqual(Less, comparator.Compare(new Span<byte>(new byte[] {1, 0, 1}), new Span<byte>(new byte[] {1, 1})));
+			Assert.AreEqual(Less, comparator.Compare(new Span<byte>(new byte[] {1, 1}), new Span<byte>(new byte[] {1, 1, 1})));
 
 			Assert.AreEqual(Greater, comparator.Compare(new Span<byte>(new byte[] {1, 0, 2}), new Span<byte>(new byte[] {1, 0, 1, 2, 3})));
 

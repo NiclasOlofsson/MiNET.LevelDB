@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using log4net;
 using Newtonsoft.Json;
 
@@ -16,32 +17,38 @@ namespace MiNET.LevelDB
 	public class ManifestReader : LogReader
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(ManifestReader));
+		private VersionEdit _versionEdit;
+		private Dictionary<string, TableReader> _tableCache = new Dictionary<string, TableReader>();
 
 		public ManifestReader(FileInfo file) : base(file)
 		{
 		}
 
-		public new byte[] Get(Span<byte> key)
+		public new ResultStatus Get(Span<byte> key)
 		{
-			VersionEdit versionEdit = ReadVersionEdit();
-			Print(versionEdit);
+			if (_versionEdit == null)
+			{
+				_versionEdit = ReadVersionEdit();
+				Print(_versionEdit);
+			}
 
-			VersionEdit metadata = ReadVersionEdit();
-			Print(metadata);
-
-			if (!"leveldb.BytewiseComparator".Equals(versionEdit.Comparator, StringComparison.InvariantCultureIgnoreCase))
-				throw new Exception($"Found record, but contains invalid or not supported comparator: {versionEdit.Comparator}");
+			if (!"leveldb.BytewiseComparator".Equals(_versionEdit.Comparator, StringComparison.InvariantCultureIgnoreCase))
+				throw new Exception($"Found record, but contains invalid or not supported comparator: {_versionEdit.Comparator}");
 
 			BytewiseComparator comparator = new BytewiseComparator();
 
 			List<FileMetadata> files = new List<FileMetadata>();
-			foreach (var newFiles in versionEdit.NewFiles) // Search all levels for file with matching index
+			foreach (var level in _versionEdit.NewFiles.OrderBy(kvp => kvp.Key)) // Search all levels for file with matching index
 			{
-				foreach (FileMetadata tbl in newFiles.Value)
+				foreach (FileMetadata tbl in level.Value)
 				{
-					if (comparator.Compare(key, tbl.SmallestKey.Key) >= 0 && comparator.Compare(key, tbl.LargestKey.Key) <= 0)
+					var smallestKey = tbl.SmallestKey.UserKey();
+					var largestKey = tbl.LargestKey.UserKey();
+					if (smallestKey.Length == 0 || largestKey.Length == 0) continue;
+
+					if (comparator.Compare(key, smallestKey) >= 0 && comparator.Compare(key, largestKey) <= 0)
 					{
-						Log.Debug($"Found table file for key: {tbl.FileNumber}");
+						Log.Warn($"Found table file for key in level {level.Key} in file={tbl.FileNumber}");
 
 						files.Add(tbl);
 					}
@@ -54,24 +61,32 @@ namespace MiNET.LevelDB
 					//			$"\nlargest key={tbl.LargestKey.Key.HexDump(40, printText: false).TrimEnd()}");
 					//}
 
-					if (newFiles.Key != 0 && files.Count > 0) break;
+					//if (level.Key >= 2 && files.Count > 0) break;
 				}
 
-				if (files.Count > 0) break;
+				//if (files.Count > 0) break;
 			}
 
 			foreach (var file in files)
 			{
 				//TODO: Get() value from file(s)
 				FileInfo f = new FileInfo(Path.Combine(_file.DirectoryName, $"{file.FileNumber:000000}.ldb"));
-				Log.Debug($"Opening table: {f.FullName}");
-				TableReader tableReader = new TableReader(f);
+
+				Log.Warn($"Opening table: {f.FullName}");
+
+				if (!_tableCache.TryGetValue(f.FullName, out var tableReader))
+				{
+					tableReader = new TableReader(f);
+					_tableCache.TryAdd(f.FullName, tableReader);
+				}
+
 				var result = tableReader.Get(key);
-				if (result != null) return result;
+				if (result.State == ResultState.Exist || result.State == ResultState.Deleted) return result;
 			}
 
-			return null;
+			return ResultStatus.NotFound;
 		}
+
 
 		public VersionEdit ReadVersionEdit()
 		{
@@ -123,7 +138,7 @@ namespace MiNET.LevelDB
 						case LogTagType.CompactPointer:
 						{
 							int level = (int) seek.ReadVarint();
-							InternalKey internalKey = new InternalKey(seek.ReadLengthPrefixedBytes());
+							var internalKey = seek.ReadLengthPrefixedBytes();
 							versionEdit.CompactPointers[level] = internalKey;
 							break;
 						}
@@ -142,8 +157,8 @@ namespace MiNET.LevelDB
 							int level = (int) seek.ReadVarint();
 							ulong fileNumber = seek.ReadVarint();
 							ulong fileSize = seek.ReadVarint();
-							var smallest = new InternalKey(seek.ReadLengthPrefixedBytes());
-							var largest = new InternalKey(seek.ReadLengthPrefixedBytes());
+							var smallest = seek.ReadLengthPrefixedBytes();
+							var largest = seek.ReadLengthPrefixedBytes();
 
 							FileMetadata fileMetadata = new FileMetadata();
 							fileMetadata.FileNumber = fileNumber;
@@ -205,6 +220,8 @@ namespace MiNET.LevelDB
 
 		public static void Print(object obj)
 		{
+			if (!Log.IsDebugEnabled) return;
+
 			var jsonSerializerSettings = new JsonSerializerSettings
 			{
 				PreserveReferencesHandling = PreserveReferencesHandling.Arrays,

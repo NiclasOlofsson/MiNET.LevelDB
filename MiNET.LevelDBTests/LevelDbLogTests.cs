@@ -15,6 +15,12 @@ namespace MiNET.LevelDBTests
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(LevelDbLogTests));
 
+		[SetUp]
+		public void Init()
+		{
+			Log.Info($" ************************ RUNNING TEST: {TestContext.CurrentContext.Test.Name} ****************************** ");
+		}
+
 		[Test]
 		public void LevelDbSearchManifestTest()
 		{
@@ -29,8 +35,8 @@ namespace MiNET.LevelDBTests
 			// 08 01 02 00 00 01 00 00 00 00 00 00 00 00 00 00  ................
 
 			ManifestReader manifestReader = new ManifestReader(new FileInfo($@"{directory}{manifestFilename}"));
-			byte[] result = manifestReader.Get(new byte[] {0xf7, 0xff, 0xff, 0xff, 0xfd, 0xff, 0xff, 0xff, 0x2f, 0x05, });
-			Assert.AreEqual(new byte[] {0x08, 0x01, 0x02, 0x0, 0x0}, result.AsSpan(0, 5).ToArray());
+			var result = manifestReader.Get(new byte[] {0xf7, 0xff, 0xff, 0xff, 0xfd, 0xff, 0xff, 0xff, 0x2f, 0x05,});
+			Assert.AreEqual(new byte[] {0x08, 0x01, 0x02, 0x0, 0x0}, result.Data.AsSpan(0, 5).ToArray());
 		}
 
 		[Test]
@@ -102,7 +108,7 @@ namespace MiNET.LevelDBTests
 						case LogTagType.CompactPointer:
 						{
 							int level = (int) seek.ReadVarint();
-							InternalKey key = new InternalKey(seek.ReadLengthPrefixedBytes());
+							var key = seek.ReadLengthPrefixedBytes();
 							versionEdit.CompactPointers[level] = key;
 							break;
 						}
@@ -121,8 +127,8 @@ namespace MiNET.LevelDBTests
 							int level = (int) seek.ReadVarint();
 							ulong fileNumber = seek.ReadVarint();
 							ulong fileSize = seek.ReadVarint();
-							var smallest = new InternalKey(seek.ReadLengthPrefixedBytes());
-							var largest = new InternalKey(seek.ReadLengthPrefixedBytes());
+							var smallest = seek.ReadLengthPrefixedBytes();
+							var largest = seek.ReadLengthPrefixedBytes();
 
 							FileMetadata fileMetadata = new FileMetadata();
 							fileMetadata.FileNumber = fileNumber;
@@ -190,6 +196,8 @@ namespace MiNET.LevelDBTests
 
 		public static void Print(object obj)
 		{
+			if (!Log.IsDebugEnabled) return;
+
 			var jsonSerializerSettings = new JsonSerializerSettings
 			{
 				PreserveReferencesHandling = PreserveReferencesHandling.Arrays,
@@ -209,10 +217,10 @@ namespace MiNET.LevelDBTests
 
 			LogReader logReader = new LogReader(new FileInfo(@"TestWorld\000047.log"));
 
-			byte[] result = logReader.Get(new byte[] {0xeb, 0xff, 0xff, 0xff, 0xf3, 0xff, 0xff, 0xff, 0x31});
+			var result = logReader.Get(new byte[] {0xeb, 0xff, 0xff, 0xff, 0xf3, 0xff, 0xff, 0xff, 0x31});
 
-			Assert.NotNull(result);
-			Assert.AreEqual(new byte[] {0xA, 0x00, 0x00, 0x02, 0x05}, result.AsSpan(0, 5).ToArray());
+			Assert.NotNull(result.Data);
+			Assert.AreEqual(new byte[] {0xA, 0x00, 0x00, 0x02, 0x05}, result.Data.AsSpan(0, 5).ToArray());
 		}
 
 		[Test]
@@ -280,7 +288,7 @@ namespace MiNET.LevelDBTests
 							throw new Exception("Unknown record format");
 					}
 
-					Log.Debug($"RecType={recType}, Sequence={sequenceNumber}, Size={size}, v1={v1}, v2={v2}\nCurrentKey={currentKey.HexDump(currentKey.Length, false, false)}\nCurrentVal=\n{currentVal.HexDump(cutAfterFive: true)} ");
+					if (Log.IsDebugEnabled) Log.Debug($"RecType={recType}, Sequence={sequenceNumber}, Size={size}, v1={v1}, v2={v2}\nCurrentKey={currentKey.HexDump(currentKey.Length, false, false)}\nCurrentVal=\n{currentVal.HexDump(cutAfterFive: true)} ");
 				}
 			}
 

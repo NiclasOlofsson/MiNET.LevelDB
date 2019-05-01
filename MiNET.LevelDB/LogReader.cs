@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
-using Crc32C;
+using Force.Crc32;
 using log4net;
 
 namespace MiNET.LevelDB
@@ -23,7 +23,7 @@ namespace MiNET.LevelDB
 			_logStream = File.OpenRead(file.FullName);
 		}
 
-		public byte[] Get(Span<byte> key)
+		public ResultStatus Get(Span<byte> key)
 		{
 			Reset();
 
@@ -31,13 +31,13 @@ namespace MiNET.LevelDB
 			{
 				Record record = ReadRecord();
 
-				if (record == null)
+				if (record == null || record.LogRecordType == LogRecordType.Eof)
 				{
-					Log.Debug("Reached end of block" + record);
+					Log.Debug("Reached end of records: " + record);
 					break;
 				}
 
-				if (record.LogRecordType != LogRecordType.Full) throw new Exception("Invalid log file. Didn't find any records");
+				if (record.LogRecordType != LogRecordType.Full) throw new Exception($"Invalid log file. Didn't find any records. Got record of type {record.LogRecordType}");
 
 				var stream = new MemoryStream(record.Data);
 				var reader = new BinaryReader(stream);
@@ -69,29 +69,28 @@ namespace MiNET.LevelDB
 						currentVal = new byte[v2];
 						reader.Read(currentVal, 0, (int) v2);
 
-						if (found) return currentVal;
+						if (found) return new ResultStatus(ResultState.Exist, currentVal);
 					}
 					else if (recType == 0)
 					{
 						// says return "not found" in this case. Need to investigate since I believe there can multiple records with same key in this case.
-						if (found) return null;
+						if (found) return ResultStatus.Deleted;
 					}
 					else
 					{
 						// unknown recType
 					}
 
-					Log.Debug($"RecType={recType}, Sequence={sequenceNumber}, Size={size}, v1={v1}, v2={v2}\nCurrentKey={currentKey.HexDump(currentKey.Length, false, false)}\nCurrentVal=\n{currentVal.HexDump(cutAfterFive: true)} ");
+					if (Log.IsDebugEnabled) Log.Debug($"RecType={recType}, Sequence={sequenceNumber}, Size={size}, v1={v1}, v2={v2}\nCurrentKey={currentKey.AsSpan().ToHexString()} ");
 				}
 			}
 
-			return null;
+			return ResultStatus.NotFound;
 		}
 
 		protected void Reset()
 		{
 			_blockStream = null;
-			_logStream.Position = 0;
 			_logStream.Position = 0;
 		}
 

@@ -3,11 +3,16 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.27703.2035
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MiNET.LevelDB", "MiNET.LevelDB\MiNET.LevelDB.csproj", "{FA52BD45-E8C3-4395-A1FB-0088F73F2570}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MiNET.LevelDB", "MiNET.LevelDB\MiNET.LevelDB.csproj", "{FA52BD45-E8C3-4395-A1FB-0088F73F2570}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MiNET.LevelDBTests", "MiNET.LevelDBTests\MiNET.LevelDBTests.csproj", "{315DC4D5-43E5-4AE5-941C-A1F06CF23352}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MiNET.LevelDBTests", "MiNET.LevelDBTests\MiNET.LevelDBTests.csproj", "{315DC4D5-43E5-4AE5-941C-A1F06CF23352}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MiNET.LevelDB.Console", "MiNET.LevelDB.Console\MiNET.LevelDB.Console.csproj", "{601EA571-F13C-4716-8EE8-95FBBB5FEC5C}"
 EndProject
 Global
+	GlobalSection(Performance) = preSolution
+		HasPerformanceSessions = true
+	EndGlobalSection
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
@@ -21,11 +26,21 @@ Global
 		{315DC4D5-43E5-4AE5-941C-A1F06CF23352}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{315DC4D5-43E5-4AE5-941C-A1F06CF23352}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{315DC4D5-43E5-4AE5-941C-A1F06CF23352}.Release|Any CPU.Build.0 = Release|Any CPU
+		{601EA571-F13C-4716-8EE8-95FBBB5FEC5C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{601EA571-F13C-4716-8EE8-95FBBB5FEC5C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{601EA571-F13C-4716-8EE8-95FBBB5FEC5C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{601EA571-F13C-4716-8EE8-95FBBB5FEC5C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {3E263C6D-FB2C-445A-8559-4C2AE13BF346}
+	EndGlobalSection
+	GlobalSection(Performance) = preSolution
+		HasPerformanceSessions = true
+	EndGlobalSection
+	GlobalSection(Performance) = preSolution
+		HasPerformanceSessions = true
 	EndGlobalSection
 EndGlobal

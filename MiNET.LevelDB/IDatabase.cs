@@ -32,6 +32,7 @@ namespace MiNET.LevelDB
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(Database));
 		private ManifestReader _manifestReader;
+		private LogReader _memCache;
 
 		public DirectoryInfo Directory { get; private set; }
 
@@ -52,8 +53,13 @@ namespace MiNET.LevelDB
 
 		public byte[] Get(Span<byte> key)
 		{
-			if (_manifestReader == null) throw new Exception("No manifest");
-			return _manifestReader.Get(key);
+			if (_manifestReader == null) throw new Exception("No manifest for database. Did you open it?");
+			if (_memCache == null) throw new Exception("No current memory cache for database. Did you open it?");
+
+			ResultStatus result = _memCache.Get(key);
+			if (result.State == ResultState.Deleted || result.State == ResultState.Exist) return result.Data;
+
+			return _manifestReader.Get(key).Data;
 		}
 
 		public List<string> GetDbKeysStartingWith(string startWith)
@@ -70,14 +76,12 @@ namespace MiNET.LevelDB
 				Log.Debug($"Opening directory: {Directory.Name}");
 
 				string newDirPath = Path.Combine(Path.GetTempPath(), Directory.Name);
-				//if(Directory.Exists) Directory.Delete();
-				//Directory.Create();
-
-				ZipFile.ExtractToDirectory(Directory.FullName, newDirPath, true);
-
 				Directory = new DirectoryInfo(Path.Combine(newDirPath, "db"));
-
-				Log.Debug($"Created new temp directory: {Directory.FullName}");
+				if (!Directory.Exists)
+				{
+					ZipFile.ExtractToDirectory(Directory.FullName, newDirPath, true);
+					Log.Debug($"Created new temp directory: {Directory.FullName}");
+				}
 			}
 
 			// Verify that directory exists
@@ -85,13 +89,19 @@ namespace MiNET.LevelDB
 
 			// Read Manifest into memory
 
-			var manifestStream = File.OpenText($@"{Path.Combine(Directory.FullName, "CURRENT")}");
-			string manifestFilename = manifestStream.ReadLine();
-			manifestStream.Close();
+			string manifestFilename;
+			using (var manifestStream = File.OpenText($@"{Path.Combine(Directory.FullName, "CURRENT")}"))
+			{
+				manifestFilename = manifestStream.ReadLine();
+				manifestStream.Close();
+			}
 
 			Log.Debug($"Reading manifest from {Path.Combine(Directory.FullName, manifestFilename)}");
-
 			_manifestReader = new ManifestReader(new FileInfo($@"{Path.Combine(Directory.FullName, manifestFilename)}"));
+
+			// Read current log
+			FileInfo f = new FileInfo(Path.Combine(Directory.FullName, $"{_manifestReader.ReadVersionEdit().LogNumber:000000}.log"));
+			_memCache = new LogReader(f);
 		}
 
 		public void Close()
@@ -107,16 +117,6 @@ namespace MiNET.LevelDB
 		public bool IsClosed()
 		{
 			throw new NotImplementedException();
-		}
-	}
-
-	public class InternalKey
-	{
-		public byte[] Key { get; }
-
-		public InternalKey(byte[] key)
-		{
-			Key = key;
 		}
 	}
 
@@ -141,7 +141,7 @@ namespace MiNET.LevelDB
 		public ulong? PreviousLogNumber { get; set; }
 		public ulong? NextFileNumber { get; set; }
 		public ulong? LastSequenceNumber { get; set; }
-		public Dictionary<int, InternalKey> CompactPointers { get; set; } = new Dictionary<int, InternalKey>();
+		public Dictionary<int, byte[]> CompactPointers { get; set; } = new Dictionary<int, byte[]>();
 		public Dictionary<int, List<ulong>> DeletedFiles { get; set; } = new Dictionary<int, List<ulong>>();
 		public Dictionary<int, List<FileMetadata>> NewFiles { get; set; } = new Dictionary<int, List<FileMetadata>>();
 	}
@@ -150,8 +150,8 @@ namespace MiNET.LevelDB
 	{
 		public ulong FileNumber { get; set; }
 		public ulong FileSize { get; set; }
-		public InternalKey SmallestKey { get; set; }
-		public InternalKey LargestKey { get; set; }
+		public byte[] SmallestKey { get; set; }
+		public byte[] LargestKey { get; set; }
 	}
 
 	public class ByteArrayConverter : JsonConverter

@@ -5,7 +5,7 @@ using System.Text;
 
 namespace MiNET.LevelDB
 {
-	public class PrintUtils
+	public class LevelLbUtils
 	{
 		public static string HexDump(byte[] bytes, int bytesPerLine = 16, bool printLineCount = false, bool printText = true, bool cutAfterFive = false)
 		{
@@ -69,26 +69,41 @@ namespace MiNET.LevelDB
 		}
 	}
 
-	public static class PrintHelpers
+	public static class LevelDbHelpers
 	{
+		public static Span<byte> UserKey(this Span<byte> fullKey)
+		{
+			return fullKey.Slice(0, fullKey.Length - 8);
+		}
+
+		public static Span<byte> UserKey(this byte[] fullKey)
+		{
+			return fullKey.AsSpan(0, fullKey.Length - 8);
+		}
+
+		public static string ToHexString(this Span<byte> bytes)
+		{
+			return bytes.ToArray().HexDump(bytes.Length, cutAfterFive: true, printText: false, printLineCount: false);
+		}
+
 		public static string HexDump(this byte[] value, int bytesPerLine = 16, bool printLineCount = false, bool printText = true, bool cutAfterFive = false)
 		{
-			return PrintUtils.HexDump(value, bytesPerLine, printLineCount, printText, cutAfterFive);
+			return LevelLbUtils.HexDump(value, bytesPerLine, printLineCount, printText, cutAfterFive);
 		}
 
 		public static ulong ReadVarint(this Stream sliceInput)
 		{
-			return PrintUtils.ReadVarint(sliceInput);
+			return LevelLbUtils.ReadVarint(sliceInput);
 		}
 
 		public static string ReadLengthPrefixedString(this Stream seek)
 		{
-			return PrintUtils.ReadLengthPrefixedString(seek);
+			return LevelLbUtils.ReadLengthPrefixedString(seek);
 		}
 
 		public static byte[] ReadLengthPrefixedBytes(this Stream seek)
 		{
-			return PrintUtils.ReadLengthPrefixedBytes(seek);
+			return LevelLbUtils.ReadLengthPrefixedBytes(seek);
 		}
 	}
 
@@ -98,16 +113,20 @@ namespace MiNET.LevelDB
 
 		public int Compare(Span<byte> a, Span<byte> b)
 		{
-			if (a == b) return 0;
+			if (a.Length == b.Length)
+			{
+				var result = a.SequenceCompareTo(b);
+				return result == 0 ? 0 : result > 0 ? 1 : -1;
+			}
+			else
+			{
+				var maxLen = Math.Min(a.Length, b.Length);
+				var result = a.Slice(0, maxLen).SequenceCompareTo(b.Slice(0, maxLen));
+				if (result != 0) return result > 0 ? 1 : -1;
 
-			if (a.Length == b.Length && a.SequenceCompareTo(b) == 0) return 0;
-
-			var maxLen = Math.Min(a.Length, b.Length);
-			var result = a.Slice(0, maxLen).SequenceCompareTo(b.Slice(0, maxLen));
-			if (result != 0) return result > 0 ? 1 : -1;
-
-			result = a.Length - b.Length;
-			return result > 0 ? 1 : -1;
+				result = a.Length - b.Length;
+				return result > 0 ? 1 : -1;
+			}
 		}
 
 		public void FindShortestSeparator(string start, Span<byte> limit)
