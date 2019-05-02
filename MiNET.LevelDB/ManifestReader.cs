@@ -18,7 +18,7 @@ namespace MiNET.LevelDB
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(ManifestReader));
 		private VersionEdit _versionEdit;
-		private Dictionary<string, TableReader> _tableCache = new Dictionary<string, TableReader>();
+		private Dictionary<ulong, TableReader> _tableCache = new Dictionary<ulong, TableReader>();
 
 		public ManifestReader(FileInfo file) : base(file)
 		{
@@ -33,55 +33,33 @@ namespace MiNET.LevelDB
 			}
 
 			if (!"leveldb.BytewiseComparator".Equals(_versionEdit.Comparator, StringComparison.InvariantCultureIgnoreCase))
-				throw new Exception($"Found record, but contains invalid or not supported comparator: {_versionEdit.Comparator}");
+				throw new Exception($"Found record, but contains invalid or unsupported comparator: {_versionEdit.Comparator}");
 
 			BytewiseComparator comparator = new BytewiseComparator();
 
-			List<FileMetadata> files = new List<FileMetadata>();
 			foreach (var level in _versionEdit.NewFiles.OrderBy(kvp => kvp.Key)) // Search all levels for file with matching index
 			{
 				foreach (FileMetadata tbl in level.Value)
 				{
 					var smallestKey = tbl.SmallestKey.UserKey();
 					var largestKey = tbl.LargestKey.UserKey();
-					if (smallestKey.Length == 0 || largestKey.Length == 0) continue;
+					//if (smallestKey.Length == 0 || largestKey.Length == 0) continue;
 
 					if (comparator.Compare(key, smallestKey) >= 0 && comparator.Compare(key, largestKey) <= 0)
 					{
-						Log.Warn($"Found table file for key in level {level.Key} in file={tbl.FileNumber}");
+						Log.Debug($"Found table file for key in level {level.Key} in file={tbl.FileNumber}");
 
-						files.Add(tbl);
+						if (!_tableCache.TryGetValue(tbl.FileNumber, out var tableReader))
+						{
+							FileInfo f = new FileInfo(Path.Combine(_file.DirectoryName, $"{tbl.FileNumber:000000}.ldb"));
+							tableReader = new TableReader(f);
+							_tableCache.TryAdd(tbl.FileNumber, tableReader);
+						}
+
+						var result = tableReader.Get(key);
+						if (result.State == ResultState.Exist || result.State == ResultState.Deleted) return result;
 					}
-
-					//else
-					//{
-					//	Log.Debug($"Found no match for key in in table file: {tbl.FileNumber}," +
-					//			$"\nkey={key.ToArray().HexDump(40, printText: false).TrimEnd()}," +
-					//			$"\nsmall key={tbl.SmallestKey.Key.HexDump(40, printText: false).TrimEnd()}," +
-					//			$"\nlargest key={tbl.LargestKey.Key.HexDump(40, printText: false).TrimEnd()}");
-					//}
-
-					//if (level.Key >= 2 && files.Count > 0) break;
 				}
-
-				//if (files.Count > 0) break;
-			}
-
-			foreach (var file in files)
-			{
-				//TODO: Get() value from file(s)
-				FileInfo f = new FileInfo(Path.Combine(_file.DirectoryName, $"{file.FileNumber:000000}.ldb"));
-
-				Log.Warn($"Opening table: {f.FullName}");
-
-				if (!_tableCache.TryGetValue(f.FullName, out var tableReader))
-				{
-					tableReader = new TableReader(f);
-					_tableCache.TryAdd(f.FullName, tableReader);
-				}
-
-				var result = tableReader.Get(key);
-				if (result.State == ResultState.Exist || result.State == ResultState.Deleted) return result;
 			}
 
 			return ResultStatus.NotFound;

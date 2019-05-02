@@ -8,17 +8,16 @@ namespace MiNET.LevelDB
 		NotFound
 	}
 
-	public ref struct ResultStatus
+	public struct ResultStatus
 	{
+		public ResultState State { get; }
+		public byte[] Data { get; }
+
 		public ResultStatus(ResultState state, byte[] data = null)
 		{
 			State = state;
 			Data = data;
 		}
-
-		public ResultState State { get; }
-
-		public byte[] Data { get; }
 
 		public static ResultStatus NotFound => new ResultStatus(ResultState.NotFound);
 		public static ResultStatus Deleted => new ResultStatus(ResultState.Deleted);
