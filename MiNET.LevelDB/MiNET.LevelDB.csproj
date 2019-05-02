@@ -6,6 +6,10 @@
 		<OutputType>Library</OutputType>
 		<StartupObject />
 		<LangVersion>latest</LangVersion>
+
+		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+		<PackageId>MiNET</PackageId>
+		<Version>0.0.0</Version>
 		<Authors>gurun</Authors>
 		<Company>Niclas Olofsson</Company>
 		<Description>LevelDB implementation for MiNET. Goal is to be able to read bedrock world-files stored in LevelDB and using zlib compression.</Description>
@@ -14,6 +18,8 @@
 		<PackageIconUrl>https://secure.gravatar.com/avatar/2ba5d72bdad85108d14512c4d27ea550?s=128&amp;r=g&amp;d=retro</PackageIconUrl>
 		<PackageTags>MiNET MCPE Minecraft PocketEdition bedrock LevelDB</PackageTags>
 		<PackageLicenseUrl>https://raw.githubusercontent.com/NiclasOlofsson/MiNET.LevelDB/master/LICENSE</PackageLicenseUrl>
+		<FileVersion>10.0.0.0</FileVersion>
+		<AssemblyVersion>10.0.0.0</AssemblyVersion>
 	</PropertyGroup>
 
 	<ItemGroup>
