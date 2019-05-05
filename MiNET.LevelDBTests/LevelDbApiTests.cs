@@ -3,10 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using log4net;
-using log4net.Core;
-using log4net.Repository.Hierarchy;
 using MiNET.LevelDB;
 using NUnit.Framework;
 
@@ -89,11 +86,12 @@ namespace MiNET.LevelDBTests
 		[TestCase(new byte[] {0xfa, 0xff, 0xff, 0xff, 0xe7, 0xff, 0xff, 0xff, 0x2f, 0x03,})]
 		public void LevelDbRepeatedGetValueFromKey(byte[] testKey)
 		{
+			// fa ff ff ff e7 ff ff ff 2f 03
 			var db = new Database(directory);
 			db.Open();
 
 			var result = db.Get(testKey);
-			Assert.IsNotNull(result, result != null ? "" : testKey.HexDump());
+			Assert.IsNotNull(result, testKey.HexDump());
 		}
 
 		[Test]
@@ -124,15 +122,15 @@ namespace MiNET.LevelDBTests
 			//	return;
 			//}
 
-			Hierarchy hierarchy = (Hierarchy) LogManager.GetRepository(Assembly.GetEntryAssembly());
-			hierarchy.Root.Level = Level.Info;
-
-			Stopwatch sw = new Stopwatch();
-			sw.Restart();
+			//Hierarchy hierarchy = (Hierarchy) LogManager.GetRepository(Assembly.GetEntryAssembly());
+			//hierarchy.Root.Level = Level.Info;
 
 			var chunks = GenerateChunks(new ChunkCoordinates(0, 0), 9);
 
 			Assert.IsTrue(BitConverter.IsLittleEndian);
+
+			Stopwatch sw = new Stopwatch();
+			sw.Restart();
 
 			int count = 0;
 			foreach (var pair in chunks.OrderBy(kvp => kvp.Value))
@@ -147,18 +145,21 @@ namespace MiNET.LevelDBTests
 					{
 						if (chunk == null)
 						{
-							Log.Error($"Missing chunk at coord={coordinates}");
+							Log.Debug($"Missing chunk at coord={coordinates}");
 						}
 						else
 						{
 							count++;
-							Log.Warn($"Found chunk at coord={coordinates}");
+							Log.Debug($"Found chunk at coord={coordinates}");
 						}
 					}
 
 					if (chunk == null) break;
 				}
 			}
+
+			var time = sw.ElapsedMilliseconds;
+			Log.Info($"time={time}");
 
 			{
 				var key = BitConverter.GetBytes(32300009).Concat(BitConverter.GetBytes(10000456)).Concat(new byte[] {0x2f, 0}).ToArray();
@@ -167,9 +168,7 @@ namespace MiNET.LevelDBTests
 			}
 
 			Assert.AreEqual(chunks.Count, count);
-
-			var time = sw.ElapsedMilliseconds;
-			Log.Info($"time={time}");
+			Assert.AreEqual(253, count);
 		}
 
 		public Dictionary<ChunkCoordinates, double> GenerateChunks(ChunkCoordinates chunkPosition, double radius)

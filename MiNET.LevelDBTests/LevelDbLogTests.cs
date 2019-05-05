@@ -36,7 +36,7 @@ namespace MiNET.LevelDBTests
 
 			ManifestReader manifestReader = new ManifestReader(new FileInfo($@"{directory}{manifestFilename}"));
 			var result = manifestReader.Get(new byte[] {0xf7, 0xff, 0xff, 0xff, 0xfd, 0xff, 0xff, 0xff, 0x2f, 0x05,});
-			Assert.AreEqual(new byte[] {0x08, 0x01, 0x02, 0x0, 0x0}, result.Data.AsSpan(0, 5).ToArray());
+			Assert.AreEqual(new byte[] {0x08, 0x01, 0x02, 0x0, 0x0}, result.Data.Slice(0, 5).ToArray());
 		}
 
 		[Test]
@@ -219,8 +219,8 @@ namespace MiNET.LevelDBTests
 
 			var result = logReader.Get(new byte[] {0xeb, 0xff, 0xff, 0xff, 0xf3, 0xff, 0xff, 0xff, 0x31});
 
-			Assert.NotNull(result.Data);
-			Assert.AreEqual(new byte[] {0xA, 0x00, 0x00, 0x02, 0x05}, result.Data.AsSpan(0, 5).ToArray());
+			Assert.IsTrue(ReadOnlySpan<byte>.Empty != result.Data);
+			Assert.AreEqual(new byte[] {0xA, 0x00, 0x00, 0x02, 0x05}, result.Data.Slice(0, 5).ToArray());
 		}
 
 		[Test]

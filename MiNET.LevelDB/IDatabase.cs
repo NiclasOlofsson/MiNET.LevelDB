@@ -33,6 +33,7 @@ namespace MiNET.LevelDB
 		private static readonly ILog Log = LogManager.GetLogger(typeof(Database));
 		private ManifestReader _manifestReader;
 		private LogReader _memCache;
+		private Statistics _statistics = new Statistics();
 
 		public DirectoryInfo Directory { get; private set; }
 
@@ -56,10 +57,17 @@ namespace MiNET.LevelDB
 			if (_manifestReader == null) throw new Exception("No manifest for database. Did you open it?");
 			if (_memCache == null) throw new Exception("No current memory cache for database. Did you open it?");
 
-			ResultStatus result = _memCache.Get(key);
-			if (result.State == ResultState.Deleted || result.State == ResultState.Exist) return result.Data;
+			ResultStatus result;
+			result = _memCache.Get(key);
+			if (result.State == ResultState.Deleted || result.State == ResultState.Exist)
+			{
+				if (result.Data == ReadOnlySpan<byte>.Empty) return null;
+				return result.Data.ToArray();
+			}
 
-			return _manifestReader.Get(key).Data;
+			result = _manifestReader.Get(key);
+			if (result.Data == ReadOnlySpan<byte>.Empty) return null;
+			return result.Data.ToArray();
 		}
 
 		public List<string> GetDbKeysStartingWith(string startWith)
@@ -75,12 +83,14 @@ namespace MiNET.LevelDB
 
 				Log.Debug($"Opening directory: {Directory.Name}");
 
+				var originalFile = Directory;
+
 				string newDirPath = Path.Combine(Path.GetTempPath(), Directory.Name);
 				Directory = new DirectoryInfo(Path.Combine(newDirPath, "db"));
-				if (!Directory.Exists)
+				if (!Directory.Exists || originalFile.LastWriteTimeUtc > Directory.LastWriteTimeUtc)
 				{
-					ZipFile.ExtractToDirectory(Directory.FullName, newDirPath, true);
-					Log.Debug($"Created new temp directory: {Directory.FullName}");
+					ZipFile.ExtractToDirectory(originalFile.FullName, newDirPath, true);
+					Log.Warn($"Created new temp directory: {Directory.FullName}");
 				}
 			}
 
@@ -118,6 +128,13 @@ namespace MiNET.LevelDB
 		{
 			throw new NotImplementedException();
 		}
+	}
+
+	public class Statistics
+	{
+		public int QuerySuccesses { get; set; }
+		public int QueryFailes { get; set; }
+		public int TableCacheHits { get; set; }
 	}
 
 	public enum LogTagType

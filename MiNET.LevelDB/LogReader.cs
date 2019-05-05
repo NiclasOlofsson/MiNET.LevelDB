@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Force.Crc32;
@@ -16,6 +17,7 @@ namespace MiNET.LevelDB
 		protected readonly FileInfo _file;
 		private Stream _logStream; // global log stream
 		private MemoryStream _blockStream; // Keep track of current block in a stream
+		Dictionary<byte[], ResultCacheEntry> _resultCache = null;
 
 		public LogReader(FileInfo file)
 		{
@@ -25,7 +27,32 @@ namespace MiNET.LevelDB
 
 		public ResultStatus Get(Span<byte> key)
 		{
-			Reset();
+			if (_resultCache == null)
+			{
+				LoadRecords();
+			}
+
+			BytewiseComparator comparator = new BytewiseComparator();
+			foreach (var entry in _resultCache)
+			{
+				if (comparator.Compare(key, entry.Key) == 0)
+				{
+					return new ResultStatus(entry.Value.ResultState, entry.Value.Data);
+				}
+			}
+
+			return ResultStatus.NotFound;
+		}
+
+		internal class ResultCacheEntry
+		{
+			public byte[] Data { get; set; }
+			public ResultState ResultState { get; set; } = ResultState.Undefined;
+		}
+
+		private void LoadRecords()
+		{
+			_resultCache = new Dictionary<byte[], ResultCacheEntry>();
 
 			while (true)
 			{
@@ -39,53 +66,36 @@ namespace MiNET.LevelDB
 
 				if (record.LogRecordType != LogRecordType.Full) throw new Exception($"Invalid log file. Didn't find any records. Got record of type {record.LogRecordType}");
 
-				var stream = new MemoryStream(record.Data);
-				var reader = new BinaryReader(stream);
+				SpanReader reader = new SpanReader(record.Data);
 
 				long sequenceNumber = reader.ReadInt64();
 				long size = reader.ReadInt32();
 
-				bool found = false;
-
-				BytewiseComparator comparator = new BytewiseComparator();
-				while (stream.Position < stream.Length)
+				while (reader.Position < reader.Length)
 				{
 					byte recType = reader.ReadByte();
 
-					ulong v1 = stream.ReadVarint();
-					byte[] currentKey = new byte[v1];
-					reader.Read(currentKey, 0, currentKey.Length);
+					ulong v1 = reader.ReadVarLongInternal();
+					byte[] currentKey = reader.Read((int) v1).ToArray();
 
-					if (comparator.Compare(key, currentKey) == 0)
-					{
-						found = true;
-					}
-
-					ulong v2 = 0;
-					byte[] currentVal = new byte[0];
 					if (recType == 1)
 					{
-						v2 = stream.ReadVarint();
-						currentVal = new byte[v2];
-						reader.Read(currentVal, 0, (int) v2);
+						var v2 = reader.ReadVarLong();
 
-						if (found) return new ResultStatus(ResultState.Exist, currentVal);
+						var currentVal = reader.Read((int) v2);
+						_resultCache.Add(currentKey, new ResultCacheEntry {ResultState = ResultState.Exist, Data = currentVal.ToArray()});
 					}
 					else if (recType == 0)
 					{
 						// says return "not found" in this case. Need to investigate since I believe there can multiple records with same key in this case.
-						if (found) return ResultStatus.Deleted;
+						_resultCache.Add(currentKey, new ResultCacheEntry {ResultState = ResultState.Deleted});
 					}
 					else
 					{
 						// unknown recType
 					}
-
-					if (Log.IsDebugEnabled) Log.Debug($"RecType={recType}, Sequence={sequenceNumber}, Size={size}, v1={v1}, v2={v2}\nCurrentKey={currentKey.AsSpan().ToHexString()} ");
 				}
 			}
-
-			return ResultStatus.NotFound;
 		}
 
 		protected void Reset()
@@ -225,11 +235,9 @@ namespace MiNET.LevelDB
 
 	public class Record
 	{
-		private static readonly ILog Log = LogManager.GetLogger(typeof(Record));
-
+		public LogRecordType LogRecordType { get; set; } = LogRecordType.Zero;
 		public uint Checksum { get; set; }
 		public ulong Length { get; set; }
-		public LogRecordType LogRecordType { get; set; }
 		public byte[] Data { get; set; }
 
 		public override string ToString()

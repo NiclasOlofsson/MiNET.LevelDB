@@ -28,6 +28,7 @@ namespace MiNET.LevelDBTests
 			TableReader table = new TableReader(fileInfo);
 
 			var result = table.Get(new byte[] {0xf6, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x2f, 0x00,});
+
 			if (result.Data != null)
 			{
 				if (Log.IsDebugEnabled) Log.Debug("Result:\n" + result.Data.HexDump(cutAfterFive: true));

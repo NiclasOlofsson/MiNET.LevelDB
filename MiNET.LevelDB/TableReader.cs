@@ -14,10 +14,14 @@ namespace MiNET.LevelDB
 		private readonly FileInfo _file;
 		private byte[] _blockIndex;
 		private byte[] _metaIndex;
+		private BloomFilterPolicy _bloomFilterPolicy;
+		private Dictionary<byte[], BlockHandle> _blockIndexes;
+		private FileStream _fileStream;
 
 		public TableReader(FileInfo file)
 		{
 			_file = file;
+			_fileStream = _file.OpenRead();
 		}
 
 		public void ReadTable()
@@ -31,7 +35,7 @@ namespace MiNET.LevelDB
 
 		public ResultStatus Get(Span<byte> key)
 		{
-			Log.Debug($"\nSearch Key={key.ToHexString()}");
+			if (Log.IsDebugEnabled) Log.Debug($"\nSearch Key={key.ToHexString()}");
 
 			// To find a key in the table you:
 			// 1) Read the block index. This index have one entry for each block in the file. For each entry it holds the
@@ -40,8 +44,8 @@ namespace MiNET.LevelDB
 			//    closer to the index you looking for. The restart index contain a subset of the keys with an offset of where it is located.
 			//    Use this offset to start closer to the key (entry) you looking for.
 			// 3) Match the key and return the data
-
-			using (var fileStream = _file.OpenRead())
+			var fileStream = _fileStream;
+			//using (var fileStream = _file.OpenRead())
 			{
 				// Search block index
 				if (_blockIndex == null || _metaIndex == null)
@@ -58,22 +62,25 @@ namespace MiNET.LevelDB
 					return ResultStatus.NotFound;
 				}
 
-				var filters = GetFilters();
-				if (filters.TryGetValue("filter.leveldb.BuiltinBloomFilter2", out BlockHandle filterHandle))
+				if (_bloomFilterPolicy == null)
 				{
-					var filterBlock = BlockHandle.ReadBlock(fileStream, filterHandle);
-					if (Log.IsDebugEnabled) Log.Debug("\n" + filterBlock.HexDump(cutAfterFive: true));
-
-					BloomFilterPolicy policy = new BloomFilterPolicy();
-					policy.Parse(filterBlock);
-					if (!policy.KeyMayMatch(key, handle.Offset))
+					var filters = GetFilters();
+					if (filters.TryGetValue("filter.leveldb.BuiltinBloomFilter2", out BlockHandle filterHandle))
 					{
-						Log.Warn("Failed match with bloom filter");
-						return ResultStatus.NotFound;
+						var filterBlock = BlockHandle.ReadBlock(fileStream, filterHandle);
+						if (Log.IsDebugEnabled) Log.Debug("\n" + filterBlock.HexDump(cutAfterFive: true));
+
+						_bloomFilterPolicy = new BloomFilterPolicy();
+						_bloomFilterPolicy.Parse(filterBlock);
 					}
 				}
 
-				var targetBlock = BlockHandle.ReadBlock(fileStream, handle);
+				if (_bloomFilterPolicy != null && !_bloomFilterPolicy.KeyMayMatch(key, handle.Offset))
+				{
+					return ResultStatus.NotFound;
+				}
+
+				ReadOnlySpan<byte> targetBlock = BlockHandle.ReadBlock(fileStream, handle);
 				return FindEntryInBlockData(key, targetBlock);
 			}
 		}
@@ -104,71 +111,99 @@ namespace MiNET.LevelDB
 			return result;
 		}
 
+		//private BlockHandle FindBlockHandleInBlockIndex(Span<byte> key)
+		//{
+		//	{
+		//		MemoryStream stream = new MemoryStream(_blockIndex);
+		//		int indexSize = GetRestartIndexSize(stream);
+
+		//		BlockHandle handle = null;
+
+		//		while (stream.Position < stream.Length - indexSize)
+		//		{
+		//			int n1 = (int) stream.ReadVarint();
+		//			int n2 = (int) stream.ReadVarint();
+		//			int n3 = (int) stream.ReadVarint();
+
+		//			byte[] keyData = new byte[n2];
+		//			stream.Read(keyData, n1, n2);
+
+		//			handle = BlockHandle.ReadBlockHandle(stream);
+		//			var comparator = new BytewiseComparator();
+		//			if (comparator.Compare(key, keyData.UserKey()) <= 0) return handle;
+		//		}
+		//	}
+
+		//	return null;
+		//}
+
 
 		private BlockHandle FindBlockHandleInBlockIndex(Span<byte> key)
 		{
-			MemoryStream stream = new MemoryStream(_blockIndex);
-			int indexSize = GetRestartIndexSize(stream);
-
-			BlockHandle handle = null;
-
-			while (stream.Position < stream.Length - indexSize)
+			if (_blockIndexes == null)
 			{
-				int n1 = (int) stream.ReadVarint();
-				int n2 = (int) stream.ReadVarint();
-				int n3 = (int) stream.ReadVarint();
+				_blockIndexes = new Dictionary<byte[], BlockHandle>();
 
-				byte[] keyData = new byte[n2];
-				stream.Read(keyData, n1, n2);
+				MemoryStream stream = new MemoryStream(_blockIndex);
+				int indexSize = GetRestartIndexSize(stream);
 
-				handle = BlockHandle.ReadBlockHandle(stream);
+				BlockHandle handle = null;
 
-				var comparator = new BytewiseComparator();
-				if (comparator.Compare(key, keyData.UserKey()) <= 0) return handle;
+				while (stream.Position < stream.Length - indexSize)
+				{
+					int n1 = (int) stream.ReadVarint();
+					int n2 = (int) stream.ReadVarint();
+					int n3 = (int) stream.ReadVarint();
+
+					byte[] keyData = new byte[n2];
+					stream.Read(keyData, n1, n2);
+
+					handle = BlockHandle.ReadBlockHandle(stream);
+					_blockIndexes.Add(keyData, handle);
+				}
+			}
+
+			var comparator = new BytewiseComparator();
+			foreach (var blockIndex in _blockIndexes)
+			{
+				if (comparator.Compare(key, blockIndex.Key.UserKey()) <= 0) return blockIndex.Value;
 			}
 
 			return null;
 		}
 
-		private ResultStatus FindEntryInBlockData(Span<byte> key, byte[] blockdata)
+		private ResultStatus FindEntryInBlockData(Span<byte> key, ReadOnlySpan<byte> blockData)
 		{
-			Stream stream = new MemoryStream(blockdata);
+			SpanReader reader = new SpanReader(blockData);
 
 			// Find offset from restart index
-			var offsets = GetRestartOffsets(stream);
+			var offsets = GetRestartOffsets(blockData);
 
 			int indexSize = (1 + offsets.Count)*sizeof(uint);
 
 			// This should be a binary search, but we brute just force top down
 			Span<byte> lastKey = null;
-			while (stream.Position < stream.Length - indexSize)
+			while (reader.Position < reader.Length - indexSize)
 			{
 				// An entry for a particular key-value pair has the form:
 				//     shared_bytes: varint32
-				var sharedBytes = stream.ReadVarint();
+				var sharedBytes = reader.ReadVarLong();
 				Debug.Assert(lastKey != null || sharedBytes == 0);
 				//     unshared_bytes: varint32
-				var unsharedBytes = stream.ReadVarint();
+				var unsharedBytes = reader.ReadVarLong();
 				//     value_length: varint32
-				var valueLength = stream.ReadVarint();
+				var valueLength = reader.ReadVarLong();
 				//     key_delta: char[unshared_bytes]
-				Span<byte> keyDelta = new byte[unsharedBytes];
-				stream.Read(keyDelta);
+				ReadOnlySpan<byte> keyDelta = reader.Read((int) unsharedBytes);
 
 				Span<byte> combinedKey = new Span<byte>(new byte[sharedBytes + unsharedBytes]);
 				lastKey.Slice(0, (int) sharedBytes).CopyTo(combinedKey.Slice(0, (int) sharedBytes));
 				keyDelta.Slice(0, (int) unsharedBytes).CopyTo(combinedKey.Slice((int) sharedBytes, (int) unsharedBytes));
 				lastKey = combinedKey;
 
-				//     value: char[value_length]
-				byte[] value = new byte[valueLength];
-				stream.Read(value, 0, (int) valueLength);
-
 				var number = BitConverter.ToUInt64(combinedKey.Slice(combinedKey.Length - 8, 8));
 				var sequence = number >> 8;
 				var keyType = (byte) number;
-
-				if (Log.IsDebugEnabled) Log.Debug($"\nKey=(+{sharedBytes}) {combinedKey.ToHexString()}\n{value.HexDump(cutAfterFive: true)}");
 
 				var comparator = new BytewiseComparator();
 				if (keyType == 0 && comparator.Compare(key, combinedKey.UserKey()) == 0)
@@ -179,6 +214,12 @@ namespace MiNET.LevelDB
 
 				if (keyType == 1 && comparator.Compare(key, combinedKey.UserKey()) == 0)
 				{
+					//     value: char[value_length]
+					var value = reader.Read((int) valueLength);
+
+					if (Log.IsDebugEnabled)
+						Log.Debug($"\nKey=(+{sharedBytes}) {combinedKey.ToHexString()}\n{value.HexDump(cutAfterFive: true)}");
+
 					if (Log.IsDebugEnabled)
 						Log.Debug($"\nFound key={combinedKey.ToHexString()}" +
 								$"\nSearch Key={key.ToHexString()}");
@@ -187,31 +228,27 @@ namespace MiNET.LevelDB
 				}
 				else
 				{
-					//TODO: Fix and use this when we don't need to debug so much
 					// Skip entry data
-					//stream.Seek((long) valueLength, SeekOrigin.Current);
+					reader.Seek((int) valueLength, SeekOrigin.Current);
 				}
 			}
 
 			return ResultStatus.NotFound;
 		}
 
-		private List<uint> GetRestartOffsets(Stream stream)
+		private List<uint> GetRestartOffsets(ReadOnlySpan<byte> data)
 		{
-			long currPos = stream.Position;
-
 			var result = new List<uint>();
 
+			SpanReader stream = new SpanReader(data);
+
 			stream.Seek(-4, SeekOrigin.End);
-			BinaryReader reader = new BinaryReader(stream);
-			uint count = reader.ReadUInt32();
-			stream.Position = (1 + count)*4;
+			uint count = stream.ReadUInt32();
+			stream.Position = (int) ((1 + count)*4);
 			for (int i = 0; i < count; i++)
 			{
-				result.Add(reader.ReadUInt32());
+				result.Add(stream.ReadUInt32());
 			}
-
-			stream.Position = currPos;
 
 			return result;
 		}

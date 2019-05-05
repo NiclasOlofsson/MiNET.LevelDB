@@ -50,6 +50,7 @@ namespace MiNET.LevelDB
 			if (crc != checkCrc) throw new InvalidDataException("Corrupted data. Failed checksum test");
 
 			Log.Debug($"Compression={compressionType}, crc={crc}, checkcrc={checkCrc}");
+
 			if (compressionType == 0)
 			{
 				// uncompressed
