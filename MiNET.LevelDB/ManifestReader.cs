@@ -30,6 +30,19 @@ namespace MiNET.LevelDB
 			{
 				_versionEdit = ReadVersionEdit();
 				Print(_versionEdit);
+
+				foreach (var level in _versionEdit.NewFiles)
+				{
+					foreach (FileMetadata tbl in level.Value)
+					{
+						if (!_tableCache.TryGetValue(tbl.FileNumber, out var tableReader))
+						{
+							FileInfo f = new FileInfo(Path.Combine(_file.DirectoryName, $"{tbl.FileNumber:000000}.ldb"));
+							tableReader = new TableReader(f);
+							_tableCache.TryAdd(tbl.FileNumber, tableReader);
+						}
+					}
+				}
 			}
 
 			if (!"leveldb.BytewiseComparator".Equals(_versionEdit.Comparator, StringComparison.InvariantCultureIgnoreCase))

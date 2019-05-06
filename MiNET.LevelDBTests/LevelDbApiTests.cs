@@ -125,7 +125,7 @@ namespace MiNET.LevelDBTests
 			//Hierarchy hierarchy = (Hierarchy) LogManager.GetRepository(Assembly.GetEntryAssembly());
 			//hierarchy.Root.Level = Level.Info;
 
-			var chunks = GenerateChunks(new ChunkCoordinates(0, 0), 9);
+			var chunks = GenerateChunks(new ChunkCoordinates(0, 0), 20);
 
 			Assert.IsTrue(BitConverter.IsLittleEndian);
 
@@ -136,9 +136,15 @@ namespace MiNET.LevelDBTests
 			foreach (var pair in chunks.OrderBy(kvp => kvp.Value))
 			{
 				var coordinates = pair.Key;
+
+				var index = BitConverter.GetBytes(coordinates.X).Concat(BitConverter.GetBytes(coordinates.Z));
+
+				var versionKey = index.Concat(new byte[] { 0x76 }).ToArray();
+				var version = db.Get(versionKey);
+
 				for (byte y = 0; y < 16; y++)
 				{
-					var key = BitConverter.GetBytes(coordinates.X).Concat(BitConverter.GetBytes(coordinates.Z)).Concat(new byte[] {0x2f, y}).ToArray();
+					var key = index.Concat(new byte[] {0x2f, y}).ToArray();
 					var chunk = db.Get(key);
 
 					if (y == 0)
@@ -156,6 +162,10 @@ namespace MiNET.LevelDBTests
 
 					if (chunk == null) break;
 				}
+
+				var flatDataBytes = db.Get(index.Concat(new byte[] { 0x2D }).ToArray());
+				var blockEntityBytes = db.Get(index.Concat(new byte[] { 0x31 }).ToArray());
+
 			}
 
 			var time = sw.ElapsedMilliseconds;
@@ -167,8 +177,8 @@ namespace MiNET.LevelDBTests
 				Assert.IsNull(chunk);
 			}
 
-			Assert.AreEqual(chunks.Count, count);
-			Assert.AreEqual(253, count);
+			//Assert.AreEqual(chunks.Count, count);
+			Assert.AreEqual(963, count);
 		}
 
 		public Dictionary<ChunkCoordinates, double> GenerateChunks(ChunkCoordinates chunkPosition, double radius)

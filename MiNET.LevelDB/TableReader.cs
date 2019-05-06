@@ -17,6 +17,7 @@ namespace MiNET.LevelDB
 		private BloomFilterPolicy _bloomFilterPolicy;
 		private Dictionary<byte[], BlockHandle> _blockIndexes;
 		private FileStream _fileStream;
+		private BytewiseComparator _comparator = new BytewiseComparator();
 
 		public TableReader(FileInfo file)
 		{
@@ -45,45 +46,50 @@ namespace MiNET.LevelDB
 			//    Use this offset to start closer to the key (entry) you looking for.
 			// 3) Match the key and return the data
 			var fileStream = _fileStream;
-			//using (var fileStream = _file.OpenRead())
+
+			// Search block index
+			if (_blockIndex == null || _metaIndex == null)
 			{
-				// Search block index
-				if (_blockIndex == null || _metaIndex == null)
-				{
-					Footer footer = Footer.Read(fileStream);
-					_blockIndex = BlockHandle.ReadBlock(fileStream, footer.BlockIndexBlockHandle);
-					_metaIndex = BlockHandle.ReadBlock(fileStream, footer.MetaindexBlockHandle);
-				}
-
-				BlockHandle handle = FindBlockHandleInBlockIndex(key);
-				if (handle == null)
-				{
-					Log.Error($"Expected to find block, but did not");
-					return ResultStatus.NotFound;
-				}
-
-				if (_bloomFilterPolicy == null)
-				{
-					var filters = GetFilters();
-					if (filters.TryGetValue("filter.leveldb.BuiltinBloomFilter2", out BlockHandle filterHandle))
-					{
-						var filterBlock = BlockHandle.ReadBlock(fileStream, filterHandle);
-						if (Log.IsDebugEnabled) Log.Debug("\n" + filterBlock.HexDump(cutAfterFive: true));
-
-						_bloomFilterPolicy = new BloomFilterPolicy();
-						_bloomFilterPolicy.Parse(filterBlock);
-					}
-				}
-
-				if (_bloomFilterPolicy != null && !_bloomFilterPolicy.KeyMayMatch(key, handle.Offset))
-				{
-					return ResultStatus.NotFound;
-				}
-
-				ReadOnlySpan<byte> targetBlock = BlockHandle.ReadBlock(fileStream, handle);
-				return FindEntryInBlockData(key, targetBlock);
+				Footer footer = Footer.Read(fileStream);
+				_blockIndex = BlockHandle.ReadBlock(fileStream, footer.BlockIndexBlockHandle);
+				_metaIndex = BlockHandle.ReadBlock(fileStream, footer.MetaindexBlockHandle);
 			}
+
+			BlockHandle handle = FindBlockHandleInBlockIndex(key);
+			if (handle == null)
+			{
+				Log.Error($"Expected to find block, but did not");
+				return ResultStatus.NotFound;
+			}
+
+			if (_bloomFilterPolicy == null)
+			{
+				var filters = GetFilters();
+				if (filters.TryGetValue("filter.leveldb.BuiltinBloomFilter2", out BlockHandle filterHandle))
+				{
+					var filterBlock = BlockHandle.ReadBlock(fileStream, filterHandle);
+					if (Log.IsDebugEnabled) Log.Debug("\n" + filterBlock.HexDump(cutAfterFive: true));
+
+					_bloomFilterPolicy = new BloomFilterPolicy();
+					_bloomFilterPolicy.Parse(filterBlock);
+				}
+			}
+
+			if (_bloomFilterPolicy != null && !_bloomFilterPolicy.KeyMayMatch(key, handle.Offset))
+			{
+				return ResultStatus.NotFound;
+			}
+
+			if (!_blockCache.TryGetValue(handle, out byte[] targetBlock))
+			{
+				targetBlock = BlockHandle.ReadBlock(fileStream, handle);
+				_blockCache.Add(handle, targetBlock);
+			}
+
+			return FindEntryInBlockData(key, targetBlock);
 		}
+
+		Dictionary<BlockHandle, byte[]> _blockCache = new Dictionary<BlockHandle, byte[]>();
 
 		private Dictionary<string, BlockHandle> GetFilters()
 		{
@@ -163,10 +169,9 @@ namespace MiNET.LevelDB
 				}
 			}
 
-			var comparator = new BytewiseComparator();
 			foreach (var blockIndex in _blockIndexes)
 			{
-				if (comparator.Compare(key, blockIndex.Key.UserKey()) <= 0) return blockIndex.Value;
+				if (_comparator.Compare(key, blockIndex.Key.UserKey()) <= 0) return blockIndex.Value;
 			}
 
 			return null;
@@ -205,14 +210,13 @@ namespace MiNET.LevelDB
 				var sequence = number >> 8;
 				var keyType = (byte) number;
 
-				var comparator = new BytewiseComparator();
-				if (keyType == 0 && comparator.Compare(key, combinedKey.UserKey()) == 0)
+				if (keyType == 0 && _comparator.Compare(key, combinedKey.UserKey()) == 0)
 				{
 					Log.Warn($"Found deleted entry for Key=(+{sharedBytes}) {combinedKey.ToHexString()}" +
 							$"\nSearch Key={key.ToHexString()}");
 				}
 
-				if (keyType == 1 && comparator.Compare(key, combinedKey.UserKey()) == 0)
+				if (keyType == 1 && _comparator.Compare(key, combinedKey.UserKey()) == 0)
 				{
 					//     value: char[value_length]
 					var value = reader.Read((int) valueLength);
