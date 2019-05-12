@@ -145,43 +145,54 @@ namespace MiNET.LevelDBTests
 			sw.Restart();
 
 			int count = 0;
-			foreach (var pair in chunks.OrderBy(kvp => kvp.Value))
+			var repetitions = 1;
+			ulong totalSize = 0;
+			for (int i = 0; i < repetitions; i++)
 			{
-				var coordinates = pair.Key;
-
-				var index = BitConverter.GetBytes(coordinates.X).Concat(BitConverter.GetBytes(coordinates.Z));
-
-				var versionKey = index.Concat(new byte[] { 0x76 }).ToArray();
-				var version = db.Get(versionKey);
-
-				for (byte y = 0; y < 16; y++)
+				foreach (var pair in chunks.OrderBy(kvp => kvp.Value))
 				{
-					var key = index.Concat(new byte[] {0x2f, y}).ToArray();
-					var chunk = db.Get(key);
+					var coordinates = pair.Key;
 
-					if (y == 0)
+					var index = BitConverter.GetBytes(coordinates.X).Concat(BitConverter.GetBytes(coordinates.Z));
+
+					var versionKey = index.Concat(new byte[] {0x76}).ToArray();
+					var version = db.Get(versionKey);
+
+					for (byte y = 0; y < 16; y++)
 					{
-						if (chunk == null)
+						var key = index.Concat(new byte[] {0x2f, y}).ToArray();
+						var chunk = db.Get(key);
+
+						if (y == 0)
 						{
-							Log.Debug($"Missing chunk at coord={coordinates}");
+							if (chunk == null)
+							{
+								Log.Debug($"Missing chunk at coord={coordinates}");
+							}
+							else
+							{
+								count++;
+								Log.Debug($"Found chunk at coord={coordinates}");
+							}
 						}
-						else
-						{
-							count++;
-							Log.Debug($"Found chunk at coord={coordinates}");
-						}
+
+						if (chunk == null) break;
+
+						totalSize += (ulong) chunk.Length;
 					}
 
-					if (chunk == null) break;
+					var flatDataBytes = db.Get(index.Concat(new byte[] {0x2D}).ToArray());
+					if (flatDataBytes != null)
+						totalSize += (ulong) flatDataBytes.Length;
+					var blockEntityBytes = db.Get(index.Concat(new byte[] {0x31}).ToArray());
+					if (blockEntityBytes != null)
+						totalSize += (ulong) blockEntityBytes.Length;
 				}
-
-				var flatDataBytes = db.Get(index.Concat(new byte[] { 0x2D }).ToArray());
-				var blockEntityBytes = db.Get(index.Concat(new byte[] { 0x31 }).ToArray());
-
 			}
 
 			var time = sw.ElapsedMilliseconds;
-			Log.Info($"time={time}");
+			Log.Info($"Fetch {count} chunk columns in {time}ms");
+			Console.WriteLine($"Fetch {count} chunk columns in {time}ms. Total size={totalSize/1000000}MB");
 
 			{
 				var key = BitConverter.GetBytes(32300009).Concat(BitConverter.GetBytes(10000456)).Concat(new byte[] {0x2f, 0}).ToArray();
@@ -189,8 +200,7 @@ namespace MiNET.LevelDBTests
 				Assert.IsNull(chunk);
 			}
 
-			//Assert.AreEqual(chunks.Count, count);
-			Assert.AreEqual(963, count);
+			Assert.AreEqual(963*repetitions, count);
 		}
 
 		public Dictionary<ChunkCoordinates, double> GenerateChunks(ChunkCoordinates chunkPosition, double radius)

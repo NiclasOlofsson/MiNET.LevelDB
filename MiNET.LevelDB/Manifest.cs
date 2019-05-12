@@ -20,7 +20,6 @@ namespace MiNET.LevelDB
 		private static readonly ILog Log = LogManager.GetLogger(typeof(Manifest));
 
 		private readonly DirectoryInfo _baseDirectory;
-
 		private Dictionary<ulong, TableReader> _tableCache = new Dictionary<ulong, TableReader>();
 
 		public VersionEdit CurrentVersion { get; private set; }
@@ -230,9 +229,55 @@ namespace MiNET.LevelDB
 			Log.Debug($"{result}");
 		}
 
+		public class ByteArrayConverter : JsonConverter
+		{
+			public override object ReadJson(
+				JsonReader reader,
+				Type objectType,
+				object existingValue,
+				JsonSerializer serializer)
+			{
+				throw new NotImplementedException();
+			}
+
+			public override void WriteJson(
+				JsonWriter writer,
+				object value,
+				JsonSerializer serializer)
+			{
+				byte[] bytes = (byte[]) value;
+				string base64String = bytes.HexDump(bytes.Length);
+
+				serializer.Serialize(writer, base64String);
+			}
+
+			public override bool CanRead
+			{
+				get { return false; }
+			}
+
+			public override bool CanConvert(Type t)
+			{
+				return typeof(byte[]).IsAssignableFrom(t);
+			}
+		}
 
 		public void FindFileWithKey(Span<byte> key)
 		{
+		}
+
+		private enum LogTagType
+		{
+			Comparator = 1,
+			LogNumber = 2,
+			NextFileNumber = 3,
+			LastSequence = 4,
+			CompactPointer = 5,
+			DeletedFile = 6,
+			NewFile = 7,
+
+			// 8 was used for large value refs
+			PrevLogNumber = 9
 		}
 	}
 }
