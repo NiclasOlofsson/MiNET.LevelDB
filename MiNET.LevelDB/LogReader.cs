@@ -1,14 +1,12 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using Force.Crc32;
 using log4net;
 using MiNET.LevelDB.Utils;
 
 namespace MiNET.LevelDB
 {
-	public class LogReader
+	public class LogReader : IDisposable
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(LogReader));
 
@@ -17,7 +15,6 @@ namespace MiNET.LevelDB
 
 		protected readonly FileInfo _file;
 		private Stream _logStream; // global log stream
-		internal Dictionary<byte[], ResultCacheEntry> _resultCache = null;
 
 		internal LogReader(Stream logStream = null)
 		{
@@ -27,117 +24,23 @@ namespace MiNET.LevelDB
 		public LogReader(FileInfo file)
 		{
 			_file = file;
-			_logStream = File.OpenRead(file.FullName);
+			if (!_file.Exists)
+			{
+				_logStream = new MemoryStream();
+			}
+			else
+			{
+				_logStream = File.OpenRead(file.FullName);
+			}
 		}
 
 		public virtual void Open()
 		{
-			if (_resultCache == null)
-			{
-				LoadRecords();
-			}
 		}
 
 		public void Close()
 		{
-			if (_logStream != null)
-			{
-				var logStream = _logStream;
-				_logStream = null;
-				logStream.Close();
-			}
-
-			if (_resultCache != null)
-			{
-				//_resultCache.Clear();
-				_resultCache = null;
-			}
-		}
-
-		public ResultStatus Get(Span<byte> key)
-		{
-			if (_resultCache == null) throw new InvalidOperationException("Log not prepared for queries. Did you forget to call Open()?");
-
-			BytewiseComparator comparator = new BytewiseComparator();
-			foreach (var entry in _resultCache.OrderByDescending(kvp => kvp.Value.Sequence))
-			{
-				if (comparator.Compare(key, entry.Key) == 0)
-				{
-					return new ResultStatus(entry.Value.ResultState, entry.Value.Data);
-				}
-			}
-
-			return ResultStatus.NotFound;
-		}
-
-		internal class ResultCacheEntry
-		{
-			public long Sequence { get; set; }
-			public byte[] Data { get; set; }
-			public ResultState ResultState { get; set; } = ResultState.Undefined;
-		}
-
-		private void LoadRecords()
-		{
-			_resultCache = new Dictionary<byte[], ResultCacheEntry>();
-
-			while (true)
-			{
-				Record record = ReadRecord();
-
-				if (record.LogRecordType == LogRecordType.Eof)
-				{
-					if (Log.IsDebugEnabled) Log.Debug($"Reached end of records: {record.ToString()}");
-					break;
-				}
-
-				if (record.LogRecordType != LogRecordType.Full) throw new Exception($"Invalid log file. Didn't find any records. Got record of type {record.LogRecordType}");
-
-				if (record.Length != (ulong) record.Data.Length) throw new Exception($"Invalid record state. Length not matching");
-
-				var entries = DecodeBatch(record.Data);
-				foreach (var entry in entries)
-				{
-					_resultCache.TryAdd(entry.Key, entry.Value);
-				}
-			}
-		}
-
-		private List<KeyValuePair<byte[], ResultCacheEntry>> DecodeBatch(ReadOnlySpan<byte> data)
-		{
-			SpanReader batchReader = new SpanReader(data);
-
-			var sequenceNumber = batchReader.ReadInt64();
-			var operationCount = batchReader.ReadInt32();
-
-			var result = new List<KeyValuePair<byte[], ResultCacheEntry>>(operationCount);
-
-			for (int i = 0; i < operationCount; i++)
-			{
-				byte operationCode = batchReader.ReadByte();
-
-				var keyLength = batchReader.ReadVarLong();
-				var currentKey = batchReader.Read(keyLength);
-
-				if (operationCode == (int) OperationType.Put) // Put
-				{
-					ulong valueLength = batchReader.ReadVarLong();
-
-					var currentVal = batchReader.Read(valueLength);
-					result.Add(new KeyValuePair<byte[], ResultCacheEntry>(currentKey.ToArray(), new ResultCacheEntry {Sequence = sequenceNumber, ResultState = ResultState.Exist, Data = currentVal.ToArray()}));
-				}
-				else if (operationCode == (int) OperationType.Delete) // Delete
-				{
-					// says return "not found" in this case. Need to investigate since I believe there can multiple records with same key in this case.
-					result.Add(new KeyValuePair<byte[], ResultCacheEntry>(currentKey.ToArray(), new ResultCacheEntry {Sequence = sequenceNumber, ResultState = ResultState.Deleted}));
-				}
-				else
-				{
-					// unknown recType
-				}
-			}
-
-			return result;
+			Dispose();
 		}
 
 		protected void Reset()
@@ -247,23 +150,9 @@ namespace MiNET.LevelDB
 			return rec;
 		}
 
-		public void Put(in Span<byte> key, in Span<byte> value)
+		public void Dispose()
 		{
-			if (_resultCache == null) throw new InvalidOperationException("Log not prepared for updates. Did you forget to call Open()?");
-
-			//BytewiseComparator comparator = new BytewiseComparator();
-			//foreach (var entry in _resultCache)
-			//{
-			//	if (comparator.Compare(key, entry.Key) == 0)
-			//	{
-			//		var cachedValue = entry.Value;
-			//		cachedValue.ResultState = ResultState.Deleted;
-			//		break;
-			//	}
-			//}
-			var seq = _resultCache.Max(kvp => kvp.Value.Sequence) + 1; // Perhaps use DateTime.Ticks
-
-			_resultCache.Add(key.ToArray(), new ResultCacheEntry {Sequence = seq, Data = value.ToArray(), ResultState = ResultState.Exist});
+			_logStream?.Dispose();
 		}
 	}
 

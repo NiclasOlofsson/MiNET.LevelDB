@@ -4,7 +4,6 @@ using System.IO;
 using log4net;
 using MiNET.LevelDB;
 using MiNET.LevelDB.Utils;
-using Newtonsoft.Json;
 using NUnit.Framework;
 
 namespace MiNET.LevelDBTests
@@ -35,181 +34,14 @@ namespace MiNET.LevelDBTests
 
 			// 08 01 02 00 00 01 00 00 00 00 00 00 00 00 00 00  ................
 
-			ManifestReader manifestReader = new ManifestReader(new FileInfo($@"{directory}{manifestFilename}"));
-			manifestReader.Open();
-			var result = manifestReader.Get(new byte[] {0xf7, 0xff, 0xff, 0xff, 0xfd, 0xff, 0xff, 0xff, 0x2f, 0x05,});
+			Manifest manifest;
+			using (var reader = new LogReader(new FileInfo($@"{directory}{manifestFilename}")))
+			{
+				manifest = new Manifest(new DirectoryInfo(directory));
+				manifest.Load(reader);
+			}
+			var result = manifest.Get(new byte[] {0xf7, 0xff, 0xff, 0xff, 0xfd, 0xff, 0xff, 0xff, 0x2f, 0x05,});
 			Assert.AreEqual(new byte[] {0x08, 0x01, 0x02, 0x0, 0x0}, result.Data.Slice(0, 5).ToArray());
-		}
-
-		[Test]
-		public void LevelDbReadManifestTest()
-		{
-			// https://github.com/google/leveldb/blob/master/doc/log_format.md
-			//
-			// The formatting of a manifest is the same as for a log-file.
-			// The CURRENT file itself is just one line of text pointing to the 
-			// current MANIFEST to use (MANIFEST-000703 in the example).
-
-			//var directory = @"D:\Temp\World Saves PE\WoUIAK-EAQA=\db\";
-			//var directory = @"D:\Temp\World Saves PE\ExoGAHavAAA=\db\";
-			//var directory = @"D:\Temp\My World\db\";
-			var directory = @"TestWorld\";
-
-			var currentStream = File.OpenText($@"{directory}CURRENT");
-			string manifestFilename = currentStream.ReadLine();
-			currentStream.Close();
-
-			Log.Debug($"Reading manifest from {manifestFilename}");
-
-			ManifestReader manifestReader = new ManifestReader(new FileInfo($@"{directory}{manifestFilename}"));
-
-			string comparator = null;
-			ulong? logNumber = null;
-			ulong? previousLogNumber = null;
-			ulong? nextFileNumber = null;
-			ulong? lastSequenceNumber = null;
-
-			VersionEdit finalVersion = new VersionEdit();
-
-			while (true)
-			{
-				Record record = manifestReader.ReadRecord();
-
-				Log.Debug($"{record.ToString()}");
-
-				if (record.LogRecordType != LogRecordType.Full) break;
-
-				VersionEdit versionEdit = new VersionEdit();
-
-				var reader = new SpanReader(record.Data);
-				while (!reader.Eof)
-				{
-					LogTagType logTag = (LogTagType) reader.ReadVarLong();
-					switch (logTag)
-					{
-						case LogTagType.Comparator:
-						{
-							versionEdit.Comparator = reader.ReadLengthPrefixedString();
-							break;
-						}
-						case LogTagType.LogNumber:
-						{
-							versionEdit.LogNumber = reader.ReadVarLong();
-							break;
-						}
-						case LogTagType.NextFileNumber:
-						{
-							versionEdit.NextFileNumber = reader.ReadVarLong();
-							break;
-						}
-						case LogTagType.LastSequence:
-						{
-							versionEdit.LastSequenceNumber = reader.ReadVarLong();
-							break;
-						}
-						case LogTagType.CompactPointer:
-						{
-							int level = (int) reader.ReadVarLong();
-							var key = reader.ReadLengthPrefixedBytes();
-							versionEdit.CompactPointers[level] = key.ToArray();
-							break;
-						}
-						case LogTagType.DeletedFile:
-						{
-							int level = (int) reader.ReadVarLong();
-							ulong fileNumber = reader.ReadVarLong();
-							if (!versionEdit.DeletedFiles.ContainsKey(level)) versionEdit.DeletedFiles[level] = new List<ulong>();
-							versionEdit.DeletedFiles[level].Add(fileNumber);
-							if (!finalVersion.DeletedFiles.ContainsKey(level)) finalVersion.DeletedFiles[level] = new List<ulong>();
-							finalVersion.DeletedFiles[level].Add(fileNumber);
-							break;
-						}
-						case LogTagType.NewFile:
-						{
-							int level = (int) reader.ReadVarLong();
-							ulong fileNumber = reader.ReadVarLong();
-							ulong fileSize = reader.ReadVarLong();
-							var smallest = reader.ReadLengthPrefixedBytes();
-							var largest = reader.ReadLengthPrefixedBytes();
-
-							FileMetadata fileMetadata = new FileMetadata();
-							fileMetadata.FileNumber = fileNumber;
-							fileMetadata.FileSize = fileSize;
-							fileMetadata.SmallestKey = smallest.ToArray();
-							fileMetadata.LargestKey = largest.ToArray();
-							if (!versionEdit.NewFiles.ContainsKey(level)) versionEdit.NewFiles[level] = new List<FileMetadata>();
-							versionEdit.NewFiles[level].Add(fileMetadata);
-							if (!finalVersion.NewFiles.ContainsKey(level)) finalVersion.NewFiles[level] = new List<FileMetadata>();
-							finalVersion.NewFiles[level].Add(fileMetadata);
-							break;
-						}
-						case LogTagType.PrevLogNumber:
-						{
-							versionEdit.PreviousLogNumber = reader.ReadVarLong();
-							break;
-						}
-						default:
-						{
-							throw new ArgumentOutOfRangeException($"Unknown tag={logTag}");
-						}
-					}
-				}
-
-				versionEdit.CompactPointers = versionEdit.CompactPointers.Count == 0 ? null : versionEdit.CompactPointers;
-				versionEdit.DeletedFiles = versionEdit.DeletedFiles.Count == 0 ? null : versionEdit.DeletedFiles;
-				versionEdit.NewFiles = versionEdit.NewFiles.Count == 0 ? null : versionEdit.NewFiles;
-
-				Print(versionEdit);
-
-				comparator = versionEdit.Comparator ?? comparator;
-				logNumber = versionEdit.LogNumber ?? logNumber;
-				previousLogNumber = versionEdit.PreviousLogNumber ?? previousLogNumber;
-				nextFileNumber = versionEdit.NextFileNumber ?? nextFileNumber;
-				lastSequenceNumber = versionEdit.LastSequenceNumber ?? lastSequenceNumber;
-
-				Log.Debug("------------------------------------------------------------");
-			}
-
-			// Clean files
-			List<ulong> deletedFiles = new List<ulong>();
-			foreach (var versionDeletedFile in finalVersion.DeletedFiles.Values)
-			{
-				deletedFiles.AddRange(versionDeletedFile);
-			}
-
-			foreach (var levelKvp in finalVersion.NewFiles)
-			{
-				foreach (var newFile in levelKvp.Value.ToArray())
-				{
-					if (deletedFiles.Contains(newFile.FileNumber)) levelKvp.Value.Remove(newFile);
-				}
-			}
-
-			finalVersion.Comparator = comparator;
-			finalVersion.LogNumber = logNumber;
-			finalVersion.PreviousLogNumber = previousLogNumber;
-			finalVersion.NextFileNumber = nextFileNumber;
-			finalVersion.LastSequenceNumber = lastSequenceNumber;
-
-			Log.Debug("============================================================");
-			Print(finalVersion);
-			Log.Debug("============================================================");
-		}
-
-		public static void Print(object obj)
-		{
-			if (!Log.IsDebugEnabled) return;
-
-			var jsonSerializerSettings = new JsonSerializerSettings
-			{
-				PreserveReferencesHandling = PreserveReferencesHandling.Arrays,
-				NullValueHandling = NullValueHandling.Ignore,
-				Formatting = Formatting.Indented,
-				Converters = {new ByteArrayConverter()}
-			};
-
-			string result = JsonConvert.SerializeObject(obj, jsonSerializerSettings);
-			Log.Debug($"{result}");
 		}
 
 		[Test]
@@ -219,8 +51,10 @@ namespace MiNET.LevelDBTests
 
 			LogReader logReader = new LogReader(new FileInfo(@"TestWorld\000047.log"));
 			logReader.Open();
+			MemCache memCache = new MemCache();
+			memCache.Load(logReader);
 
-			var result = logReader.Get(new byte[] {0xeb, 0xff, 0xff, 0xff, 0xf3, 0xff, 0xff, 0xff, 0x31});
+			var result = memCache.Get(new byte[] {0xeb, 0xff, 0xff, 0xff, 0xf3, 0xff, 0xff, 0xff, 0x31});
 
 			Assert.IsTrue(ReadOnlySpan<byte>.Empty != result.Data);
 			Assert.AreEqual(new byte[] {0xA, 0x00, 0x00, 0x02, 0x05}, result.Data.Slice(0, 5).ToArray());
@@ -301,21 +135,22 @@ namespace MiNET.LevelDBTests
 		{
 			// Plan
 
-			LogWriter writer = new LogWriter();
-			var operations = new KeyValuePair<byte[], LogReader.ResultCacheEntry>[3];
+			var operations = new KeyValuePair<byte[], MemCache.ResultCacheEntry>[3];
 			byte[] key = FillArrayWithRandomBytes(20);
 			for (int i = 0; i < 3; i++)
 			{
-				var entry = new LogReader.ResultCacheEntry();
+				var entry = new MemCache.ResultCacheEntry();
 				entry.ResultState = ResultState.Exist;
 				entry.Sequence = 10;
 				entry.Data = FillArrayWithRandomBytes(32768); // 32KB is maz size for a block, not that it matters for this
-				operations[i] = new KeyValuePair<byte[], LogReader.ResultCacheEntry>(key, entry);
+				operations[i] = new KeyValuePair<byte[], MemCache.ResultCacheEntry>(key, entry);
 			}
+
+			MemCache memCache = new MemCache();
 
 			// Do
 
-			ReadOnlySpan<byte> result = writer.EncodeBatch(operations);
+			ReadOnlySpan<byte> result = memCache.EncodeBatch(operations);
 
 			// Check
 
@@ -341,6 +176,7 @@ namespace MiNET.LevelDBTests
 
 			// test encoding complete blocks
 
+			LogWriter writer = new LogWriter();
 			var stream = new MemoryStream();
 			writer.EncodeBlocks(stream, result);
 			Assert.Less(0, stream.Length);
@@ -350,7 +186,11 @@ namespace MiNET.LevelDBTests
 
 			LogReader logReader = new LogReader(stream);
 			logReader.Open();
-			var cache = logReader._resultCache;
+
+			MemCache memCache2 = new MemCache();
+			memCache2.Load(logReader);
+
+			var cache = memCache2._resultCache;
 			Assert.AreEqual(3, cache.Count);
 
 			int j = 0;

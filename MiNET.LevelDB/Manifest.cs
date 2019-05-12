@@ -15,23 +15,26 @@ namespace MiNET.LevelDB
 	///     check each table file that overlaps the target key. leveldb searches each potential table file, level by level,
 	///     until finding the first that yields an exact match for requested key.
 	/// </summary>
-	public class ManifestReader : LogReader
+	public class Manifest
 	{
-		private static readonly ILog Log = LogManager.GetLogger(typeof(ManifestReader));
+		private static readonly ILog Log = LogManager.GetLogger(typeof(Manifest));
+
+		private readonly DirectoryInfo _baseDirectory;
 
 		private Dictionary<ulong, TableReader> _tableCache = new Dictionary<ulong, TableReader>();
 
 		public VersionEdit CurrentVersion { get; private set; }
 
-		public ManifestReader(FileInfo file) : base(file)
+		public Manifest(DirectoryInfo baseDirectory)
 		{
+			_baseDirectory = baseDirectory;
 		}
 
-		public override void Open()
+		public void Load(LogReader reader)
 		{
 			if (CurrentVersion != null) return;
 
-			CurrentVersion = ReadVersionEdit();
+			CurrentVersion = ReadVersionEdit(reader);
 			Print(CurrentVersion);
 
 			foreach (var level in CurrentVersion.NewFiles)
@@ -40,7 +43,7 @@ namespace MiNET.LevelDB
 				{
 					if (!_tableCache.TryGetValue(tbl.FileNumber, out var tableReader))
 					{
-						FileInfo f = new FileInfo(Path.Combine(_file.DirectoryName, $"{tbl.FileNumber:000000}.ldb"));
+						FileInfo f = new FileInfo(Path.Combine(_baseDirectory.FullName, $"{tbl.FileNumber:000000}.ldb"));
 						tableReader = new TableReader(f);
 						_tableCache.TryAdd(tbl.FileNumber, tableReader);
 					}
@@ -48,7 +51,7 @@ namespace MiNET.LevelDB
 			}
 		}
 
-		public new ResultStatus Get(Span<byte> key)
+		public ResultStatus Get(Span<byte> key)
 		{
 			if (!"leveldb.BytewiseComparator".Equals(CurrentVersion.Comparator, StringComparison.InvariantCultureIgnoreCase))
 				throw new Exception($"Found record, but contains invalid or unsupported comparator: {CurrentVersion.Comparator}");
@@ -69,7 +72,7 @@ namespace MiNET.LevelDB
 
 						if (!_tableCache.TryGetValue(tbl.FileNumber, out var tableReader))
 						{
-							FileInfo f = new FileInfo(Path.Combine(_file.DirectoryName, $"{tbl.FileNumber:000000}.ldb"));
+							FileInfo f = new FileInfo(Path.Combine(_baseDirectory.FullName, $"{tbl.FileNumber:000000}.ldb"));
 							tableReader = new TableReader(f);
 							_tableCache.TryAdd(tbl.FileNumber, tableReader);
 						}
@@ -83,11 +86,8 @@ namespace MiNET.LevelDB
 			return ResultStatus.NotFound;
 		}
 
-
-		public VersionEdit ReadVersionEdit()
+		public VersionEdit ReadVersionEdit(LogReader logReader)
 		{
-			Reset();
-
 			string comparator = null;
 			ulong? logNumber = null;
 			ulong? previousLogNumber = null;
@@ -98,7 +98,7 @@ namespace MiNET.LevelDB
 
 			while (true)
 			{
-				Record record = ReadRecord();
+				Record record = logReader.ReadRecord();
 
 				if (record.LogRecordType != LogRecordType.Full) break;
 

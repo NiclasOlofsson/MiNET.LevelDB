@@ -47,6 +47,17 @@ namespace MiNET.LevelDBTests
 		}
 
 		[Test]
+		public void LevelDbCreateFromDirectory()
+		{
+			DirectoryInfo tempDir = new DirectoryInfo(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
+
+			var db = new Database(tempDir);
+			db.CreateIfMissing = true;
+			db.Open();
+			//var result = db.Get(testKeys.Last());
+		}
+
+		[Test]
 		public void LevelDbGetValueFromKey()
 		{
 			var db = new Database(directory);

@@ -1,7 +1,5 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using Force.Crc32;
 using log4net;
@@ -11,7 +9,7 @@ using MiNET.LevelDB.Utils;
 
 namespace MiNET.LevelDB
 {
-	public class LogWriter
+	public class LogWriter : IDisposable
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(LogWriter));
 
@@ -19,83 +17,27 @@ namespace MiNET.LevelDB
 		const int HeaderSize = 4 + 2 + 1; // Max block size need to include space for header.
 
 		private readonly FileInfo _file;
-		private Dictionary<byte[], LogReader.ResultCacheEntry> _resultCache;
+		private FileStream _fileStream;
 
-		internal LogWriter(FileInfo file, Dictionary<byte[], LogReader.ResultCacheEntry> resultCache)
+		internal LogWriter(FileInfo file)
 		{
 			_file = file;
-			_resultCache = resultCache;
 		}
 
 		internal LogWriter()
 		{
 		}
 
-
-		public void Write()
+		internal void EncodeBlocks(ReadOnlySpan<byte> data)
 		{
-			using (var fileStream = _file.OpenWrite())
+			if (_fileStream == null)
 			{
-				var groups = _resultCache.GroupBy(kvp => kvp.Value.Sequence);
-				foreach (var group in groups)
-				{
-					var operations = @group.ToArray();
-					var batch = EncodeBatch(operations);
-					EncodeBlocks(fileStream, batch);
-				}
+				_fileStream = _file.OpenWrite();
 			}
+
+			EncodeBlocks(_fileStream, data);
 		}
 
-		internal ReadOnlySpan<byte> EncodeBatch(KeyValuePair<byte[], LogReader.ResultCacheEntry>[] operations)
-		{
-			if (operations.Length == 0) throw new ArgumentException("Zero size batch", nameof(operations));
-
-			long maxSize = 0;
-			maxSize += 8; // sequence
-			maxSize += 4*operations.Length; // count
-			foreach (var entry in operations)
-			{
-				maxSize += 1; // op code
-				maxSize += 10; // varint max
-				maxSize += entry.Key.Length;
-				if (entry.Value.ResultState == ResultState.Exist)
-				{
-					maxSize += 10; // varint max
-					maxSize += entry.Value.Data?.Length ?? 0;
-				}
-			}
-
-			Span<byte> data = new byte[maxSize]; // big enough to contain all data regardless of size
-
-			var writer = new SpanWriter(data);
-
-			// write sequence
-			writer.Write(operations.First().Value.Sequence);
-			// write operations count
-			writer.Write((int) operations.Length);
-
-			foreach (var operation in operations)
-			{
-				var key = operation.Key;
-				var entry = operation.Value;
-				// write op type (byte)
-				writer.Write(entry.ResultState == ResultState.Exist ? (byte) OperationType.Put : (byte) OperationType.Delete);
-				// write key len (varint)
-				writer.WriteVarInt((ulong) key.Length);
-				// write key
-				writer.Write(key);
-
-				if (entry.ResultState == ResultState.Exist)
-				{
-					// write data len (varint)
-					writer.WriteVarInt((ulong) entry.Data.Length);
-					// write data
-					writer.Write(entry.Data);
-				}
-			}
-
-			return data.Slice(0, writer.Position);
-		}
 
 		internal void EncodeBlocks(Stream stream, ReadOnlySpan<byte> data)
 		{
@@ -171,6 +113,16 @@ namespace MiNET.LevelDB
 			stream.Write(BitConverter.GetBytes((ushort) fragmentData.Length));
 			stream.Write(new[] {(byte) recordType});
 			stream.Write(fragmentData);
+		}
+
+		public void Close()
+		{
+			Dispose();
+		}
+
+		public void Dispose()
+		{
+			_fileStream?.Dispose();
 		}
 	}
 }

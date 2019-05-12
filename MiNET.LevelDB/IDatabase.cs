@@ -32,11 +32,12 @@ namespace MiNET.LevelDB
 	public class Database : IDatabase
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(Database));
-		private ManifestReader _manifestReader;
-		private LogReader _memCache;
+		private Manifest _manifest;
+		private MemCache _newMemCache;
 		private Statistics _statistics = new Statistics();
 
 		public DirectoryInfo Directory { get; private set; }
+		public bool CreateIfMissing { get; set; } = false;
 
 		public Database(DirectoryInfo dbDirectory)
 		{
@@ -50,26 +51,32 @@ namespace MiNET.LevelDB
 
 		public void Put(Span<byte> key, Span<byte> value)
 		{
-			if (_manifestReader == null) throw new InvalidOperationException("No manifest for database. Did you open it?");
-			if (_memCache == null) throw new InvalidOperationException("No current memory cache for database. Did you open it?");
+			if (_manifest == null) throw new InvalidOperationException("No manifest for database. Did you open it?");
+			if (_newMemCache == null) throw new InvalidOperationException("No current memory cache for database. Did you open it?");
 
-			_memCache.Put(key, value);
+			_newMemCache.Put(key, value);
 		}
 
 		public byte[] Get(Span<byte> key)
 		{
-			if (_manifestReader == null) throw new InvalidOperationException("No manifest for database. Did you open it?");
-			if (_memCache == null) throw new InvalidOperationException("No current memory cache for database. Did you open it?");
+			if (_manifest == null) throw new InvalidOperationException("No manifest for database. Did you open it?");
+			if (_newMemCache == null) throw new InvalidOperationException("No current memory cache for database. Did you open it?");
 
-			ResultStatus result;
-			result = _memCache.Get(key);
+			//ResultStatus result;
+			//result = _memCache.Get(key);
+			//if (result.State == ResultState.Deleted || result.State == ResultState.Exist)
+			//{
+			//	if (result.Data == ReadOnlySpan<byte>.Empty) return null;
+			//	return result.Data.ToArray();
+			//}
+			var result = _newMemCache.Get(key);
 			if (result.State == ResultState.Deleted || result.State == ResultState.Exist)
 			{
 				if (result.Data == ReadOnlySpan<byte>.Empty) return null;
 				return result.Data.ToArray();
 			}
 
-			result = _manifestReader.Get(key);
+			result = _manifest.Get(key);
 			if (result.Data == ReadOnlySpan<byte>.Empty) return null;
 			return result.Data.ToArray();
 		}
@@ -81,8 +88,8 @@ namespace MiNET.LevelDB
 
 		public void Open()
 		{
-			if (_manifestReader != null) throw new InvalidOperationException("No manifest for database. Did you already open it?");
-			if (_memCache != null) throw new InvalidOperationException("No current memory cache for database. Did you already open it?");
+			if (_manifest != null) throw new InvalidOperationException("Already had manifest for database. Did you already open it?");
+			if (_newMemCache != null) throw new InvalidOperationException("Already had memory cache for database. Did you already open it?");
 
 			if (Directory.Name.EndsWith(".mcworld"))
 			{
@@ -102,46 +109,72 @@ namespace MiNET.LevelDB
 			}
 
 			// Verify that directory exists
-			if (!Directory.Exists) throw new DirectoryNotFoundException(Directory.Name);
+			if (!Directory.Exists)
+			{
+				if (!CreateIfMissing) throw new DirectoryNotFoundException(Directory.Name);
+
+				Directory.Create();
+
+				// Create new MANIFEST
+
+				VersionEdit newVersion = new VersionEdit();
+				newVersion.NextFileNumber = 1;
+				newVersion.Comparator = "leveldb.BytewiseComparator";
+
+				// Create new CURRENT text file and store manifest filename in it
+				using (var manifestStream = File.CreateText($@"{Path.Combine(Directory.FullName, "CURRENT")}"))
+				{
+					manifestStream.WriteLine($"MANIFEST-{newVersion.NextFileNumber++:000000}");
+					manifestStream.Close();
+				}
+
+
+				// Done
+			}
 
 			// Read Manifest into memory
 
 			string manifestFilename;
-			using (var manifestStream = File.OpenText($@"{Path.Combine(Directory.FullName, "CURRENT")}"))
+			using (var currentStream = File.OpenText($@"{Path.Combine(Directory.FullName, "CURRENT")}"))
 			{
-				manifestFilename = manifestStream.ReadLine();
-				manifestStream.Close();
+				manifestFilename = currentStream.ReadLine();
+				currentStream.Close();
 			}
 
 			Log.Debug($"Reading manifest from {Path.Combine(Directory.FullName, manifestFilename)}");
-			_manifestReader = new ManifestReader(new FileInfo($@"{Path.Combine(Directory.FullName, manifestFilename)}"));
-			_manifestReader.Open();
+			using (var reader = new LogReader(new FileInfo($@"{Path.Combine(Directory.FullName, manifestFilename)}")))
+			{
+				_manifest = new Manifest(Directory);
+				_manifest.Load(reader);
+			}
 
 			// Read current log
-			// debug-check
-
-			var logFileName = Path.Combine(Directory.FullName, $"{_manifestReader.CurrentVersion.LogNumber + 1:000000}.log");
+			//TODO: remove unit-test-stuff
+			var logFileName = Path.Combine(Directory.FullName, $"{_manifest.CurrentVersion.LogNumber + 1:000000}.log");
 			FileInfo f = new FileInfo(logFileName);
 			if (!f.Exists)
 			{
-				f = new FileInfo(Path.Combine(Directory.FullName, $"{_manifestReader.CurrentVersion.LogNumber:000000}.log"));
+				f = new FileInfo(Path.Combine(Directory.FullName, $"{_manifest.CurrentVersion.LogNumber:000000}.log"));
 			}
-			_memCache = new LogReader(f);
-			_memCache.Open();
+
+			using (var reader = new LogReader(f))
+			{
+				_newMemCache = new MemCache();
+				_newMemCache.Load(reader);
+			}
 		}
 
 		public void Close()
 		{
-			var nextLogNumber = _manifestReader.ReadVersionEdit().LogNumber + 1;
-			_manifestReader = null;
+			var nextLogNumber = _manifest.CurrentVersion.LogNumber + 1;
+			_manifest = null;
 
-			var memCache = _memCache;
-			_memCache = null;
-			var cache = memCache._resultCache;
-			memCache.Close();
-
-			LogWriter writer = new LogWriter(new FileInfo(Path.Combine(Directory.FullName, $"{nextLogNumber:000000}.log")), cache);
-			writer.Write();
+			var memCache = _newMemCache;
+			_newMemCache = null;
+			using (var logWriter = new LogWriter(new FileInfo(Path.Combine(Directory.FullName, $"{nextLogNumber:000000}.log"))))
+			{
+				memCache.Write(logWriter);
+			}
 		}
 
 		public void Destroy()
