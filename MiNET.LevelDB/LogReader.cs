@@ -17,7 +17,6 @@ namespace MiNET.LevelDB
 
 		protected readonly FileInfo _file;
 		private Stream _logStream; // global log stream
-		private MemoryStream _blockStream; // Keep track of current block in a stream
 		internal Dictionary<byte[], ResultCacheEntry> _resultCache = null;
 
 		internal LogReader(Stream logStream = null)
@@ -46,13 +45,6 @@ namespace MiNET.LevelDB
 				var logStream = _logStream;
 				_logStream = null;
 				logStream.Close();
-			}
-
-			if (_blockStream != null)
-			{
-				var stream = _blockStream;
-				_blockStream = null;
-				stream.Close();
 			}
 
 			if (_resultCache != null)
@@ -95,13 +87,14 @@ namespace MiNET.LevelDB
 
 				if (record.LogRecordType == LogRecordType.Eof)
 				{
-					Log.Debug($"Reached end of records: {record.ToString()}");
+					if (Log.IsDebugEnabled) Log.Debug($"Reached end of records: {record.ToString()}");
 					break;
 				}
 
 				if (record.LogRecordType != LogRecordType.Full) throw new Exception($"Invalid log file. Didn't find any records. Got record of type {record.LogRecordType}");
 
-				if(record.Length != (ulong) record.Data.Length) throw new Exception($"Invalid record state. Length not matching");
+				if (record.Length != (ulong) record.Data.Length) throw new Exception($"Invalid record state. Length not matching");
+
 				var entries = DecodeBatch(record.Data);
 				foreach (var entry in entries)
 				{
@@ -112,12 +105,12 @@ namespace MiNET.LevelDB
 
 		private List<KeyValuePair<byte[], ResultCacheEntry>> DecodeBatch(ReadOnlySpan<byte> data)
 		{
-			var result = new List<KeyValuePair<byte[], ResultCacheEntry>>();
-
 			SpanReader batchReader = new SpanReader(data);
 
-			long sequenceNumber = batchReader.ReadInt64();
-			long operationCount = batchReader.ReadInt32();
+			var sequenceNumber = batchReader.ReadInt64();
+			var operationCount = batchReader.ReadInt32();
+
+			var result = new List<KeyValuePair<byte[], ResultCacheEntry>>(operationCount);
 
 			for (int i = 0; i < operationCount; i++)
 			{
@@ -149,7 +142,6 @@ namespace MiNET.LevelDB
 
 		protected void Reset()
 		{
-			_blockStream = null;
 			_logStream.Position = 0;
 		}
 
@@ -157,21 +149,9 @@ namespace MiNET.LevelDB
 		{
 			Record lastRecord = Record.Undefined;
 
-			while (true)
+			while (_logStream.Position < _logStream.Length)
 			{
-				if (_blockStream == null || _blockStream.Position >= _blockStream.Length)
-				{
-					byte[] buffer = new byte[BlockSize];
-					if (_logStream.Read(buffer, 0, BlockSize) == 0)
-					{
-						Log.Debug("Reached end of file stream");
-						break;
-					}
-
-					_blockStream = new MemoryStream(buffer);
-				}
-
-				Stream stream = _blockStream;
+				Stream stream = _logStream;
 
 				while (true)
 				{
@@ -179,7 +159,7 @@ namespace MiNET.LevelDB
 
 					if (record.LogRecordType == LogRecordType.BadRecord)
 					{
-						Log.Debug($"Reached end of block {record.ToString()}");
+						if (Log.IsDebugEnabled) Log.Debug($"Reached end of block {record.ToString()}");
 						break;
 					}
 
@@ -199,7 +179,11 @@ namespace MiNET.LevelDB
 					if (!lastRecord.IsUndefined && (record.LogRecordType == LogRecordType.Middle || record.LogRecordType == LogRecordType.Last))
 					{
 						lastRecord.Length += record.Length;
-						lastRecord.Data = lastRecord.Data.ToArray().Concat(record.Data.ToArray()).ToArray(); //TODO: NO, we can't do like this
+						var lastData = lastRecord.Data;
+						var destination = new Span<byte>(new byte[lastRecord.Data.Length + record.Data.Length]);
+						lastData.CopyTo(destination);
+						record.Data.CopyTo(destination.Slice(lastData.Length));
+						lastRecord.Data = destination;
 
 						if (record.LogRecordType == LogRecordType.Middle)
 						{
@@ -217,7 +201,7 @@ namespace MiNET.LevelDB
 					if (record.LogRecordType != LogRecordType.Full)
 					{
 						Log.Warn($"Read unhandled record of type {record.LogRecordType}");
-						Log.Debug($"{record.ToString()}");
+						if (Log.IsDebugEnabled) Log.Debug($"{record.ToString()}");
 						continue;
 					}
 

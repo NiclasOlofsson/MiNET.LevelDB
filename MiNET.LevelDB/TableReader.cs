@@ -52,8 +52,8 @@ namespace MiNET.LevelDB
 			if (_blockIndex == null || _metaIndex == null)
 			{
 				Footer footer = Footer.Read(fileStream);
-				_blockIndex = BlockHandle.ReadBlock(fileStream, footer.BlockIndexBlockHandle);
-				_metaIndex = BlockHandle.ReadBlock(fileStream, footer.MetaindexBlockHandle);
+				_blockIndex = footer.BlockIndexBlockHandle.ReadBlock(fileStream);
+				_metaIndex = footer.MetaindexBlockHandle.ReadBlock(fileStream);
 			}
 
 			BlockHandle handle = FindBlockHandleInBlockIndex(key);
@@ -68,7 +68,7 @@ namespace MiNET.LevelDB
 				var filters = GetFilters();
 				if (filters.TryGetValue("filter.leveldb.BuiltinBloomFilter2", out BlockHandle filterHandle))
 				{
-					var filterBlock = BlockHandle.ReadBlock(fileStream, filterHandle);
+					var filterBlock = filterHandle.ReadBlock(fileStream);
 					if (Log.IsDebugEnabled) Log.Debug("\n" + filterBlock.HexDump(cutAfterFive: true));
 
 					_bloomFilterPolicy = new BloomFilterPolicy();
@@ -83,7 +83,7 @@ namespace MiNET.LevelDB
 
 			if (!_blockCache.TryGetValue(handle, out byte[] targetBlock))
 			{
-				targetBlock = BlockHandle.ReadBlock(fileStream, handle);
+				targetBlock = handle.ReadBlock(fileStream);
 				_blockCache.Add(handle, targetBlock);
 			}
 
@@ -96,19 +96,18 @@ namespace MiNET.LevelDB
 		{
 			var result = new Dictionary<string, BlockHandle>();
 
-			MemoryStream stream = new MemoryStream(_metaIndex);
-			int indexSize = GetRestartIndexSize(stream);
+			SpanReader reader = new SpanReader(_metaIndex);
+			int indexSize = GetRestartIndexSize(ref reader);
 
-			while (stream.Position < stream.Length - indexSize)
+			while (reader.Position < reader.Length - indexSize)
 			{
-				int n1 = (int) stream.ReadVarint();
-				int n2 = (int) stream.ReadVarint();
-				int n3 = (int) stream.ReadVarint();
+				var offset = reader.ReadVarLong();
+				var length = reader.ReadVarLong();
+				var n3 = reader.ReadVarLong();
 
-				byte[] keyData = new byte[n2];
-				stream.Read(keyData, n1, n2);
+				var keyData = reader.Read(offset, length);
 
-				var filterHandle = BlockHandle.ReadBlockHandle(stream);
+				var filterHandle = BlockHandle.ReadBlockHandle(ref reader);
 
 				Log.Debug($"Key={Encoding.UTF8.GetString(keyData)}, BlockHandle={filterHandle}");
 
@@ -118,55 +117,25 @@ namespace MiNET.LevelDB
 			return result;
 		}
 
-		//private BlockHandle FindBlockHandleInBlockIndex(Span<byte> key)
-		//{
-		//	{
-		//		MemoryStream stream = new MemoryStream(_blockIndex);
-		//		int indexSize = GetRestartIndexSize(stream);
-
-		//		BlockHandle handle = null;
-
-		//		while (stream.Position < stream.Length - indexSize)
-		//		{
-		//			int n1 = (int) stream.ReadVarint();
-		//			int n2 = (int) stream.ReadVarint();
-		//			int n3 = (int) stream.ReadVarint();
-
-		//			byte[] keyData = new byte[n2];
-		//			stream.Read(keyData, n1, n2);
-
-		//			handle = BlockHandle.ReadBlockHandle(stream);
-		//			var comparator = new BytewiseComparator();
-		//			if (comparator.Compare(key, keyData.UserKey()) <= 0) return handle;
-		//		}
-		//	}
-
-		//	return null;
-		//}
-
-
 		private BlockHandle FindBlockHandleInBlockIndex(Span<byte> key)
 		{
 			if (_blockIndexes == null)
 			{
 				_blockIndexes = new Dictionary<byte[], BlockHandle>();
 
-				MemoryStream stream = new MemoryStream(_blockIndex);
-				int indexSize = GetRestartIndexSize(stream);
+				SpanReader reader = new SpanReader(_blockIndex);
+				int indexSize = GetRestartIndexSize(ref reader);
 
-				BlockHandle handle = null;
-
-				while (stream.Position < stream.Length - indexSize)
+				while (reader.Position < reader.Length - indexSize)
 				{
-					int n1 = (int) stream.ReadVarint();
-					int n2 = (int) stream.ReadVarint();
-					int n3 = (int) stream.ReadVarint();
+					var offset = reader.ReadVarLong();
+					var length = reader.ReadVarLong();
+					var n3 = reader.ReadVarLong();
 
-					byte[] keyData = new byte[n2];
-					stream.Read(keyData, n1, n2);
+					var keyData = reader.Read(offset, length);
 
-					handle = BlockHandle.ReadBlockHandle(stream);
-					_blockIndexes.Add(keyData, handle);
+					var handle = BlockHandle.ReadBlockHandle(ref reader);
+					_blockIndexes.Add(keyData.ToArray(), handle);
 				}
 			}
 
@@ -258,13 +227,12 @@ namespace MiNET.LevelDB
 			return result;
 		}
 
-		private int GetRestartIndexSize(Stream stream)
+		private int GetRestartIndexSize(ref SpanReader reader)
 		{
-			long currPos = stream.Position;
-			stream.Seek(-4, SeekOrigin.End);
-			BinaryReader reader = new BinaryReader(stream);
+			var currPos = reader.Position;
+			reader.Seek(-4, SeekOrigin.End);
 			int count = reader.ReadInt32();
-			stream.Position = currPos;
+			reader.Position = currPos;
 			return (1 + count)*4;
 		}
 	}

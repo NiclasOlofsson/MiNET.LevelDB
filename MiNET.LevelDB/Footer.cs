@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using MiNET.LevelDB.Utils;
 
 namespace MiNET.LevelDB
 {
@@ -32,24 +33,26 @@ namespace MiNET.LevelDB
 		public static Footer Read(Stream stream)
 		{
 			stream.Seek(-Magic.Length, SeekOrigin.End);
-			byte[] magic = new byte[Magic.Length];
+			Span<byte> magic = new byte[Magic.Length];
 			stream.Read(magic);
-			if (!Magic.AsSpan().SequenceEqual(magic.AsSpan()))
+			if (!Magic.AsSpan().SequenceEqual(magic))
 			{
 				throw new Exception("Invalid footer. Magic end missing. This is not a proper table file");
 			}
 
 			stream.Seek(-FooterLength, SeekOrigin.End);
+			Span<byte> footer = new byte[FooterLength];
+			stream.Read(footer);
+			SpanReader reader = new SpanReader(footer);
 
-			BlockHandle metaIndexHandle = BlockHandle.ReadBlockHandle(stream);
-			BlockHandle indexHandle = BlockHandle.ReadBlockHandle(stream);
+			BlockHandle metaIndexHandle = BlockHandle.ReadBlockHandle(ref reader);
+			BlockHandle indexHandle = BlockHandle.ReadBlockHandle(ref reader);
 
 			return new Footer(metaIndexHandle, indexHandle);
 		}
 
 		public void ReadBlockIndex(Stream stream, BlockHandle indexHandle)
 		{
-
 		}
 	}
 }

@@ -18,6 +18,7 @@ namespace MiNET.LevelDB
 	public class ManifestReader : LogReader
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(ManifestReader));
+
 		private Dictionary<ulong, TableReader> _tableCache = new Dictionary<ulong, TableReader>();
 
 		public VersionEdit CurrentVersion { get; private set; }
@@ -28,21 +29,20 @@ namespace MiNET.LevelDB
 
 		public override void Open()
 		{
-			if (CurrentVersion == null)
-			{
-				CurrentVersion = ReadVersionEdit();
-				Print(CurrentVersion);
+			if (CurrentVersion != null) return;
 
-				foreach (var level in CurrentVersion.NewFiles)
+			CurrentVersion = ReadVersionEdit();
+			Print(CurrentVersion);
+
+			foreach (var level in CurrentVersion.NewFiles)
+			{
+				foreach (FileMetadata tbl in level.Value)
 				{
-					foreach (FileMetadata tbl in level.Value)
+					if (!_tableCache.TryGetValue(tbl.FileNumber, out var tableReader))
 					{
-						if (!_tableCache.TryGetValue(tbl.FileNumber, out var tableReader))
-						{
-							FileInfo f = new FileInfo(Path.Combine(_file.DirectoryName, $"{tbl.FileNumber:000000}.ldb"));
-							tableReader = new TableReader(f);
-							_tableCache.TryAdd(tbl.FileNumber, tableReader);
-						}
+						FileInfo f = new FileInfo(Path.Combine(_file.DirectoryName, $"{tbl.FileNumber:000000}.ldb"));
+						tableReader = new TableReader(f);
+						_tableCache.TryAdd(tbl.FileNumber, tableReader);
 					}
 				}
 			}
@@ -102,46 +102,46 @@ namespace MiNET.LevelDB
 
 				if (record.LogRecordType != LogRecordType.Full) break;
 
-				var seek = new SpanReader(record.Data);
+				var reader = new SpanReader(record.Data);
 
 				VersionEdit versionEdit = new VersionEdit();
 
-				while (seek.Position < seek.Length)
+				while (!reader.Eof)
 				{
-					LogTagType logTag = (LogTagType) seek.ReadVarLong();
+					LogTagType logTag = (LogTagType) reader.ReadVarLong();
 					switch (logTag)
 					{
 						case LogTagType.Comparator:
 						{
-							versionEdit.Comparator = seek.ReadLengthPrefixedString();
+							versionEdit.Comparator = reader.ReadLengthPrefixedString();
 							break;
 						}
 						case LogTagType.LogNumber:
 						{
-							versionEdit.LogNumber = seek.ReadVarLong();
+							versionEdit.LogNumber = reader.ReadVarLong();
 							break;
 						}
 						case LogTagType.NextFileNumber:
 						{
-							versionEdit.NextFileNumber = seek.ReadVarLong();
+							versionEdit.NextFileNumber = reader.ReadVarLong();
 							break;
 						}
 						case LogTagType.LastSequence:
 						{
-							versionEdit.LastSequenceNumber = seek.ReadVarLong();
+							versionEdit.LastSequenceNumber = reader.ReadVarLong();
 							break;
 						}
 						case LogTagType.CompactPointer:
 						{
-							int level = (int) seek.ReadVarLong();
-							var internalKey = seek.ReadLengthPrefixedBytes();
+							int level = (int) reader.ReadVarLong();
+							var internalKey = reader.ReadLengthPrefixedBytes();
 							versionEdit.CompactPointers[level] = internalKey.ToArray();
 							break;
 						}
 						case LogTagType.DeletedFile:
 						{
-							int level = (int) seek.ReadVarLong();
-							ulong fileNumber = seek.ReadVarLong();
+							int level = (int) reader.ReadVarLong();
+							ulong fileNumber = reader.ReadVarLong();
 							if (!versionEdit.DeletedFiles.ContainsKey(level)) versionEdit.DeletedFiles[level] = new List<ulong>();
 							versionEdit.DeletedFiles[level].Add(fileNumber);
 							if (!finalVersion.DeletedFiles.ContainsKey(level)) finalVersion.DeletedFiles[level] = new List<ulong>();
@@ -150,11 +150,11 @@ namespace MiNET.LevelDB
 						}
 						case LogTagType.NewFile:
 						{
-							int level = (int) seek.ReadVarLong();
-							ulong fileNumber = seek.ReadVarLong();
-							ulong fileSize = seek.ReadVarLong();
-							var smallest = seek.ReadLengthPrefixedBytes();
-							var largest = seek.ReadLengthPrefixedBytes();
+							int level = (int) reader.ReadVarLong();
+							ulong fileNumber = reader.ReadVarLong();
+							ulong fileSize = reader.ReadVarLong();
+							var smallest = reader.ReadLengthPrefixedBytes();
+							var largest = reader.ReadLengthPrefixedBytes();
 
 							FileMetadata fileMetadata = new FileMetadata();
 							fileMetadata.FileNumber = fileNumber;
@@ -169,7 +169,7 @@ namespace MiNET.LevelDB
 						}
 						case LogTagType.PrevLogNumber:
 						{
-							versionEdit.PreviousLogNumber = seek.ReadVarLong();
+							versionEdit.PreviousLogNumber = reader.ReadVarLong();
 							break;
 						}
 						default:

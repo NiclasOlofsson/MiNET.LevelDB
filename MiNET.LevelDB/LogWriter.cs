@@ -67,9 +67,6 @@ namespace MiNET.LevelDB
 
 			Span<byte> data = new byte[maxSize]; // big enough to contain all data regardless of size
 
-			//MemoryStream stream = new MemoryStream(data);
-			//BinaryWriter writer = new BinaryWriter(stream);
-
 			var writer = new SpanWriter(data);
 
 			// write sequence
@@ -106,7 +103,7 @@ namespace MiNET.LevelDB
 
 			var currentRecordType = LogRecordType.Zero;
 
-			while (reader.Position < reader.Length)
+			while (!reader.Eof)
 			{
 				int sizeLeft = (int) (BlockSize - stream.Position%BlockSize);
 				int bytesLeft = reader.Length - reader.Position;

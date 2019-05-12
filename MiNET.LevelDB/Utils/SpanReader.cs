@@ -133,6 +133,21 @@ namespace MiNET.LevelDB.Utils
 			throw new Exception("last byte of variable length int has high bit set");
 		}
 
+		public ReadOnlySpan<byte> Read(ulong offset, ulong count)
+		{
+			long n = Length - Position;
+			if (n > (long) count)
+				n = (long) count;
+			if (n <= 0)
+				return ReadOnlySpan<byte>.Empty;
+
+			Span<byte> result = new byte[offset + count];
+
+			Read(n).CopyTo(result.Slice((int) offset, (int) n));
+
+			return result;
+		}
+
 		public ReadOnlySpan<byte> Read(ulong length)
 		{
 			return Read((int) length);

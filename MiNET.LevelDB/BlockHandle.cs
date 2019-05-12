@@ -20,24 +20,31 @@ namespace MiNET.LevelDB
 			Length = length;
 		}
 
-		public static BlockHandle ReadBlockHandle(Stream stream)
+		public static BlockHandle ReadBlockHandle(ref SpanReader reader)
 		{
-			ulong offset = stream.ReadVarint();
-			ulong length = stream.ReadVarint();
+			ulong offset = reader.ReadVarLong();
+			ulong length = reader.ReadVarLong();
 
 			return new BlockHandle(offset, length);
 		}
 
-		public static byte[] ReadBlock(Stream stream, BlockHandle handle)
+		public byte[] ReadBlock(Stream stream)
+		{
+			return ReadBlock(stream, this);
+		}
+
+
+		private static byte[] ReadBlock(Stream stream, BlockHandle handle)
 		{
 			// File format contains a sequence of blocks where each block has:
 			//    block_data: uint8[n]
 			//    type: uint8
 			//    crc: uint32
 
-			byte[] data = new byte[handle.Length];
+			int length = (int) handle.Length;
+			byte[] data = new byte[length];
 			stream.Seek((long) handle.Offset, SeekOrigin.Begin);
-			stream.Read(data, 0, data.Length);
+			stream.Read(data, 0, length);
 
 			byte compressionType = (byte) stream.ReadByte();
 
@@ -45,7 +52,7 @@ namespace MiNET.LevelDB
 			stream.Read(checksum, 0, checksum.Length);
 			uint crc = BitConverter.ToUInt32(checksum);
 
-			uint checkCrc = Crc32CAlgorithm.Compute(data);
+			uint checkCrc = Crc32CAlgorithm.Compute(data, 0, length);
 			checkCrc = Mask(Crc32CAlgorithm.Append(checkCrc, new[] {compressionType}));
 
 			if (crc != checkCrc) throw new InvalidDataException("Corrupted data. Failed checksum test");
