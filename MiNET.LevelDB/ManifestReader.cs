@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using log4net;
+using MiNET.LevelDB.Utils;
 using Newtonsoft.Json;
 
 namespace MiNET.LevelDB
@@ -17,21 +18,22 @@ namespace MiNET.LevelDB
 	public class ManifestReader : LogReader
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(ManifestReader));
-		private VersionEdit _versionEdit;
 		private Dictionary<ulong, TableReader> _tableCache = new Dictionary<ulong, TableReader>();
+
+		public VersionEdit CurrentVersion { get; private set; }
 
 		public ManifestReader(FileInfo file) : base(file)
 		{
 		}
 
-		public new ResultStatus Get(Span<byte> key)
+		public override void Open()
 		{
-			if (_versionEdit == null)
+			if (CurrentVersion == null)
 			{
-				_versionEdit = ReadVersionEdit();
-				Print(_versionEdit);
+				CurrentVersion = ReadVersionEdit();
+				Print(CurrentVersion);
 
-				foreach (var level in _versionEdit.NewFiles)
+				foreach (var level in CurrentVersion.NewFiles)
 				{
 					foreach (FileMetadata tbl in level.Value)
 					{
@@ -44,13 +46,16 @@ namespace MiNET.LevelDB
 					}
 				}
 			}
+		}
 
-			if (!"leveldb.BytewiseComparator".Equals(_versionEdit.Comparator, StringComparison.InvariantCultureIgnoreCase))
-				throw new Exception($"Found record, but contains invalid or unsupported comparator: {_versionEdit.Comparator}");
+		public new ResultStatus Get(Span<byte> key)
+		{
+			if (!"leveldb.BytewiseComparator".Equals(CurrentVersion.Comparator, StringComparison.InvariantCultureIgnoreCase))
+				throw new Exception($"Found record, but contains invalid or unsupported comparator: {CurrentVersion.Comparator}");
 
 			BytewiseComparator comparator = new BytewiseComparator();
 
-			foreach (var level in _versionEdit.NewFiles.OrderBy(kvp => kvp.Key)) // Search all levels for file with matching index
+			foreach (var level in CurrentVersion.NewFiles.OrderBy(kvp => kvp.Key)) // Search all levels for file with matching index
 			{
 				foreach (FileMetadata tbl in level.Value)
 				{
@@ -97,13 +102,13 @@ namespace MiNET.LevelDB
 
 				if (record.LogRecordType != LogRecordType.Full) break;
 
-				var seek = new MemoryStream(record.Data);
+				var seek = new SpanReader(record.Data);
 
 				VersionEdit versionEdit = new VersionEdit();
 
 				while (seek.Position < seek.Length)
 				{
-					LogTagType logTag = (LogTagType) seek.ReadVarint();
+					LogTagType logTag = (LogTagType) seek.ReadVarLong();
 					switch (logTag)
 					{
 						case LogTagType.Comparator:
@@ -113,30 +118,30 @@ namespace MiNET.LevelDB
 						}
 						case LogTagType.LogNumber:
 						{
-							versionEdit.LogNumber = seek.ReadVarint();
+							versionEdit.LogNumber = seek.ReadVarLong();
 							break;
 						}
 						case LogTagType.NextFileNumber:
 						{
-							versionEdit.NextFileNumber = seek.ReadVarint();
+							versionEdit.NextFileNumber = seek.ReadVarLong();
 							break;
 						}
 						case LogTagType.LastSequence:
 						{
-							versionEdit.LastSequenceNumber = seek.ReadVarint();
+							versionEdit.LastSequenceNumber = seek.ReadVarLong();
 							break;
 						}
 						case LogTagType.CompactPointer:
 						{
-							int level = (int) seek.ReadVarint();
+							int level = (int) seek.ReadVarLong();
 							var internalKey = seek.ReadLengthPrefixedBytes();
-							versionEdit.CompactPointers[level] = internalKey;
+							versionEdit.CompactPointers[level] = internalKey.ToArray();
 							break;
 						}
 						case LogTagType.DeletedFile:
 						{
-							int level = (int) seek.ReadVarint();
-							ulong fileNumber = seek.ReadVarint();
+							int level = (int) seek.ReadVarLong();
+							ulong fileNumber = seek.ReadVarLong();
 							if (!versionEdit.DeletedFiles.ContainsKey(level)) versionEdit.DeletedFiles[level] = new List<ulong>();
 							versionEdit.DeletedFiles[level].Add(fileNumber);
 							if (!finalVersion.DeletedFiles.ContainsKey(level)) finalVersion.DeletedFiles[level] = new List<ulong>();
@@ -145,17 +150,17 @@ namespace MiNET.LevelDB
 						}
 						case LogTagType.NewFile:
 						{
-							int level = (int) seek.ReadVarint();
-							ulong fileNumber = seek.ReadVarint();
-							ulong fileSize = seek.ReadVarint();
+							int level = (int) seek.ReadVarLong();
+							ulong fileNumber = seek.ReadVarLong();
+							ulong fileSize = seek.ReadVarLong();
 							var smallest = seek.ReadLengthPrefixedBytes();
 							var largest = seek.ReadLengthPrefixedBytes();
 
 							FileMetadata fileMetadata = new FileMetadata();
 							fileMetadata.FileNumber = fileNumber;
 							fileMetadata.FileSize = fileSize;
-							fileMetadata.SmallestKey = smallest;
-							fileMetadata.LargestKey = largest;
+							fileMetadata.SmallestKey = smallest.ToArray();
+							fileMetadata.LargestKey = largest.ToArray();
 							if (!versionEdit.NewFiles.ContainsKey(level)) versionEdit.NewFiles[level] = new List<FileMetadata>();
 							versionEdit.NewFiles[level].Add(fileMetadata);
 							if (!finalVersion.NewFiles.ContainsKey(level)) finalVersion.NewFiles[level] = new List<FileMetadata>();
@@ -164,7 +169,7 @@ namespace MiNET.LevelDB
 						}
 						case LogTagType.PrevLogNumber:
 						{
-							versionEdit.PreviousLogNumber = seek.ReadVarint();
+							versionEdit.PreviousLogNumber = seek.ReadVarLong();
 							break;
 						}
 						default:

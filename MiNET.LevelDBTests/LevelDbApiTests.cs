@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using log4net;
 using MiNET.LevelDB;
+using MiNET.LevelDB.Utils;
 using NUnit.Framework;
 
 namespace MiNET.LevelDBTests
@@ -50,11 +51,11 @@ namespace MiNET.LevelDBTests
 		{
 			var db = new Database(directory);
 			db.Open();
-			var result = db.Get(testKeys.First());
+			var result = db.Get(testKeys.Last());
 			// 08 01 08 00 00 40 44 44 14 41 44 00 70 41 44 44  .....@DD.AD.pADD
 
 
-			Assert.AreEqual(new byte[] {0x08, 0x01, 0x08, 0x00, 0x00}, result.AsSpan(0, 5).ToArray());
+			Assert.AreEqual(new byte[] {0x08, 0x01, 0x02, 0x00, 0x80}, result.AsSpan(0, 5).ToArray());
 		}
 
 		[Test]

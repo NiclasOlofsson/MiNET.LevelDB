@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using log4net;
+using MiNET.LevelDB.Utils;
 
 namespace MiNET.LevelDB
 {
@@ -199,7 +200,7 @@ namespace MiNET.LevelDB
 				//     value_length: varint32
 				var valueLength = reader.ReadVarLong();
 				//     key_delta: char[unshared_bytes]
-				ReadOnlySpan<byte> keyDelta = reader.Read((int) unsharedBytes);
+				ReadOnlySpan<byte> keyDelta = reader.Read(unsharedBytes);
 
 				Span<byte> combinedKey = new Span<byte>(new byte[sharedBytes + unsharedBytes]);
 				lastKey.Slice(0, (int) sharedBytes).CopyTo(combinedKey.Slice(0, (int) sharedBytes));
@@ -219,7 +220,7 @@ namespace MiNET.LevelDB
 				if (keyType == 1 && _comparator.Compare(key, combinedKey.UserKey()) == 0)
 				{
 					//     value: char[value_length]
-					var value = reader.Read((int) valueLength);
+					var value = reader.Read(valueLength);
 
 					if (Log.IsDebugEnabled)
 						Log.Debug($"\nKey=(+{sharedBytes}) {combinedKey.ToHexString()}\n{value.HexDump(cutAfterFive: true)}");

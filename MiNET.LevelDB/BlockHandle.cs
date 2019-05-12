@@ -3,6 +3,7 @@ using System.IO;
 using System.IO.Compression;
 using Force.Crc32;
 using log4net;
+using MiNET.LevelDB.Utils;
 
 namespace MiNET.LevelDB
 {

@@ -1,5 +1,6 @@
 using System;
 using MiNET.LevelDB;
+using MiNET.LevelDB.Utils;
 using NUnit.Framework;
 
 namespace MiNET.LevelDBTests

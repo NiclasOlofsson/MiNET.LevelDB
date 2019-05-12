@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using log4net;
+using MiNET.LevelDB.Utils;
 using Newtonsoft.Json;
 
 namespace MiNET.LevelDB
@@ -49,13 +50,16 @@ namespace MiNET.LevelDB
 
 		public void Put(Span<byte> key, Span<byte> value)
 		{
-			throw new NotImplementedException();
+			if (_manifestReader == null) throw new InvalidOperationException("No manifest for database. Did you open it?");
+			if (_memCache == null) throw new InvalidOperationException("No current memory cache for database. Did you open it?");
+
+			_memCache.Put(key, value);
 		}
 
 		public byte[] Get(Span<byte> key)
 		{
-			if (_manifestReader == null) throw new Exception("No manifest for database. Did you open it?");
-			if (_memCache == null) throw new Exception("No current memory cache for database. Did you open it?");
+			if (_manifestReader == null) throw new InvalidOperationException("No manifest for database. Did you open it?");
+			if (_memCache == null) throw new InvalidOperationException("No current memory cache for database. Did you open it?");
 
 			ResultStatus result;
 			result = _memCache.Get(key);
@@ -77,6 +81,9 @@ namespace MiNET.LevelDB
 
 		public void Open()
 		{
+			if (_manifestReader != null) throw new InvalidOperationException("No manifest for database. Did you already open it?");
+			if (_memCache != null) throw new InvalidOperationException("No current memory cache for database. Did you already open it?");
+
 			if (Directory.Name.EndsWith(".mcworld"))
 			{
 				// Exported from MCPE. Unpack to temp
@@ -108,15 +115,33 @@ namespace MiNET.LevelDB
 
 			Log.Debug($"Reading manifest from {Path.Combine(Directory.FullName, manifestFilename)}");
 			_manifestReader = new ManifestReader(new FileInfo($@"{Path.Combine(Directory.FullName, manifestFilename)}"));
+			_manifestReader.Open();
 
 			// Read current log
-			FileInfo f = new FileInfo(Path.Combine(Directory.FullName, $"{_manifestReader.ReadVersionEdit().LogNumber:000000}.log"));
+			// debug-check
+
+			var logFileName = Path.Combine(Directory.FullName, $"{_manifestReader.CurrentVersion.LogNumber + 1:000000}.log");
+			FileInfo f = new FileInfo(logFileName);
+			if (!f.Exists)
+			{
+				f = new FileInfo(Path.Combine(Directory.FullName, $"{_manifestReader.CurrentVersion.LogNumber:000000}.log"));
+			}
 			_memCache = new LogReader(f);
+			_memCache.Open();
 		}
 
 		public void Close()
 		{
-			throw new NotImplementedException();
+			var nextLogNumber = _manifestReader.ReadVersionEdit().LogNumber + 1;
+			_manifestReader = null;
+
+			var memCache = _memCache;
+			_memCache = null;
+			var cache = memCache._resultCache;
+			memCache.Close();
+
+			LogWriter writer = new LogWriter(new FileInfo(Path.Combine(Directory.FullName, $"{nextLogNumber:000000}.log")), cache);
+			writer.Write();
 		}
 
 		public void Destroy()

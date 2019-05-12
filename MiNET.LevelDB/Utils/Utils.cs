@@ -1,12 +1,11 @@
 ﻿using System;
-using System.Buffers.Binary;
 using System.IO;
 using System.Linq;
 using System.Text;
 
-namespace MiNET.LevelDB
+namespace MiNET.LevelDB.Utils
 {
-	public class LevelLbUtils
+	public class LevelDbUtils
 	{
 		public static string HexDump(byte[] bytes, int bytesPerLine = 16, bool printLineCount = false, bool printText = true, bool cutAfterFive = false)
 		{
@@ -68,6 +67,21 @@ namespace MiNET.LevelDB
 			seek.Read(buffer, 0, buffer.Length);
 			return buffer;
 		}
+
+		public static void WriteVarint(Stream stream, ulong value)
+		{
+			var buffer = new byte[5]; // this is not proper for long i believe
+			var size = 0;
+			var num = (ulong) value;
+			while (num >= 128U)
+			{
+				buffer[size++] = ((byte) (num | 128U));
+				num >>= 7;
+			}
+			buffer[size++] = (byte) num;
+
+			stream.Write(buffer, 0, size);
+		}
 	}
 
 	public static class LevelDbHelpers
@@ -94,27 +108,32 @@ namespace MiNET.LevelDB
 
 		public static string HexDump(this byte[] value, int bytesPerLine = 16, bool printLineCount = false, bool printText = true, bool cutAfterFive = false)
 		{
-			return LevelLbUtils.HexDump(value, bytesPerLine, printLineCount, printText, cutAfterFive);
+			return LevelDbUtils.HexDump(value, bytesPerLine, printLineCount, printText, cutAfterFive);
 		}
 
 		public static string HexDump(this ReadOnlySpan<byte> value, int bytesPerLine = 16, bool printLineCount = false, bool printText = true, bool cutAfterFive = false)
 		{
-			return LevelLbUtils.HexDump(value.ToArray(), bytesPerLine, printLineCount, printText, cutAfterFive);
+			return LevelDbUtils.HexDump(value.ToArray(), bytesPerLine, printLineCount, printText, cutAfterFive);
 		}
 
 		public static ulong ReadVarint(this Stream sliceInput)
 		{
-			return LevelLbUtils.ReadVarint(sliceInput);
+			return LevelDbUtils.ReadVarint(sliceInput);
 		}
 
 		public static string ReadLengthPrefixedString(this Stream seek)
 		{
-			return LevelLbUtils.ReadLengthPrefixedString(seek);
+			return LevelDbUtils.ReadLengthPrefixedString(seek);
 		}
 
 		public static byte[] ReadLengthPrefixedBytes(this Stream seek)
 		{
-			return LevelLbUtils.ReadLengthPrefixedBytes(seek);
+			return LevelDbUtils.ReadLengthPrefixedBytes(seek);
+		}
+
+		public static void WriteVarint(this Stream stream, ulong value)
+		{
+			LevelDbUtils.WriteVarint(stream, value);
 		}
 	}
 
@@ -146,149 +165,6 @@ namespace MiNET.LevelDB
 
 		public void FindShortSuccessor(string key)
 		{
-		}
-	}
-
-	public ref struct SpanReader
-	{
-		private ReadOnlySpan<byte> _buffer;
-
-		public int Position { get; set; }
-		public int Length => _buffer.Length;
-
-		public SpanReader(ReadOnlySpan<byte> buffer)
-		{
-			_buffer = buffer;
-			Position = 0;
-		}
-
-		public int Seek(int offset, SeekOrigin origin)
-		{
-			if (offset > Length) throw new ArgumentOutOfRangeException(nameof(offset), "offset longer than stream");
-
-			var tempPosition = Position;
-			switch (origin)
-			{
-				case SeekOrigin.Begin:
-					tempPosition = offset;
-					break;
-				case SeekOrigin.Current:
-					tempPosition += offset;
-					break;
-				case SeekOrigin.End:
-					tempPosition = Length + offset;
-					break;
-				default:
-					throw new ArgumentOutOfRangeException(nameof(origin), origin, null);
-			}
-
-			if (tempPosition < 0) throw new IOException("Seek before beginning of stream");
-
-			Position = tempPosition;
-
-			return Position;
-		}
-
-
-		public byte ReadByte()
-		{
-			byte val = _buffer[Position];
-			Position++;
-			return val;
-		}
-
-		public int ReadInt32()
-		{
-			int val = BinaryPrimitives.ReadInt32LittleEndian(_buffer.Slice(Position, 4));
-			Position += 4;
-			return val;
-		}
-
-		public uint ReadUInt32()
-		{
-			uint val = BinaryPrimitives.ReadUInt32LittleEndian(_buffer.Slice(Position, 4));
-			Position += 4;
-			return val;
-		}
-
-		public long ReadInt64()
-		{
-			long val = BinaryPrimitives.ReadInt64LittleEndian(_buffer.Slice(Position, 8));
-			Position += 8;
-			return val;
-		}
-
-		public ulong ReadUInt64()
-		{
-			ulong val = BinaryPrimitives.ReadUInt64LittleEndian(_buffer.Slice(Position, 8));
-			Position += 8;
-			return val;
-		}
-
-		public ReadOnlySpan<byte> Read(int length)
-		{
-			ReadOnlySpan<byte> bytes = _buffer.Slice(Position, length);
-			Position += length;
-
-			return bytes;
-		}
-
-		public uint ReadVarInt()
-		{
-			return ReadVarIntInternal();
-		}
-
-		public int ReadSignedVarInt()
-		{
-			return DecodeZigZag32((uint) ReadVarIntInternal());
-		}
-
-		private static int DecodeZigZag32(uint n)
-		{
-			return (int) (n >> 1) ^ -(int) (n & 1);
-		}
-
-		public ulong ReadVarLong()
-		{
-			return ReadVarLongInternal();
-		}
-
-		private uint ReadVarIntInternal()
-		{
-			uint result = 0;
-			for (int shift = 0; shift <= 31; shift += 7)
-			{
-				byte b = _buffer[Position++];
-
-				// add the lower 7 bits to the result
-				result |= (uint) ((b & 0x7f) << shift);
-
-				// if high bit is not set, this is the last byte in the number
-				if ((b & 0x80) == 0)
-				{
-					return result;
-				}
-			}
-			throw new Exception("last byte of variable length int has high bit set");
-		}
-
-		public ulong ReadVarLongInternal()
-		{
-			ulong result = 0;
-			for (int shift = 0; shift <= 63; shift += 7)
-			{
-				ulong b = _buffer[Position++];
-
-				// add the lower 7 bits to the result
-				result |= ((b & 0x7f) << shift);
-
-				// if high bit is not set, this is the last byte in the number
-				if ((b & 0x80) == 0)
-				{
-					return result;
-				}
-			}
-			throw new Exception("last byte of variable length int has high bit set");
 		}
 	}
 }

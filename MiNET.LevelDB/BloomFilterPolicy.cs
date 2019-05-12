@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using MiNET.LevelDB.Utils;
 
 namespace MiNET.LevelDB
 {
@@ -125,17 +126,16 @@ namespace MiNET.LevelDB
 
 		public object Parse(byte[] filterBlock)
 		{
-			var stream = new MemoryStream(filterBlock);
-			var reader = new BinaryReader(stream);
+			var reader = new SpanReader(filterBlock);
 
-			if (stream.Length < 5) return null;
+			if (reader.Length < 5) return null;
 
-			stream.Seek(-1, SeekOrigin.End);
+			reader.Seek(-1, SeekOrigin.End);
 			_baseLg = reader.ReadByte();
-			stream.Seek(-5, SeekOrigin.End);
+			reader.Seek(-5, SeekOrigin.End);
 			_startOffsetArray = reader.ReadInt32();
 
-			if (_startOffsetArray > stream.Length - 5) return null;
+			if (_startOffsetArray > reader.Length - 5) return null;
 
 			_filterBlock = filterBlock;
 

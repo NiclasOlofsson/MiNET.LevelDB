@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using log4net;
 using MiNET.LevelDB;
+using MiNET.LevelDB.Utils;
 using NUnit.Framework;
 
 namespace MiNET.LevelDBTests

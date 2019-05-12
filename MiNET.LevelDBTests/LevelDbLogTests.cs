@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using log4net;
 using MiNET.LevelDB;
+using MiNET.LevelDB.Utils;
 using Newtonsoft.Json;
 using NUnit.Framework;
 
@@ -35,6 +36,7 @@ namespace MiNET.LevelDBTests
 			// 08 01 02 00 00 01 00 00 00 00 00 00 00 00 00 00  ................
 
 			ManifestReader manifestReader = new ManifestReader(new FileInfo($@"{directory}{manifestFilename}"));
+			manifestReader.Open();
 			var result = manifestReader.Get(new byte[] {0xf7, 0xff, 0xff, 0xff, 0xfd, 0xff, 0xff, 0xff, 0x2f, 0x05,});
 			Assert.AreEqual(new byte[] {0x08, 0x01, 0x02, 0x0, 0x0}, result.Data.Slice(0, 5).ToArray());
 		}
@@ -73,16 +75,16 @@ namespace MiNET.LevelDBTests
 			{
 				Record record = manifestReader.ReadRecord();
 
-				Log.Debug($"{record}");
+				Log.Debug($"{record.ToString()}");
 
 				if (record.LogRecordType != LogRecordType.Full) break;
 
 				VersionEdit versionEdit = new VersionEdit();
 
-				var seek = new MemoryStream(record.Data);
+				var seek = new SpanReader(record.Data);
 				while (seek.Position < seek.Length)
 				{
-					LogTagType logTag = (LogTagType) seek.ReadVarint();
+					LogTagType logTag = (LogTagType) seek.ReadVarLong();
 					switch (logTag)
 					{
 						case LogTagType.Comparator:
@@ -92,30 +94,30 @@ namespace MiNET.LevelDBTests
 						}
 						case LogTagType.LogNumber:
 						{
-							versionEdit.LogNumber = seek.ReadVarint();
+							versionEdit.LogNumber = seek.ReadVarLong();
 							break;
 						}
 						case LogTagType.NextFileNumber:
 						{
-							versionEdit.NextFileNumber = seek.ReadVarint();
+							versionEdit.NextFileNumber = seek.ReadVarLong();
 							break;
 						}
 						case LogTagType.LastSequence:
 						{
-							versionEdit.LastSequenceNumber = seek.ReadVarint();
+							versionEdit.LastSequenceNumber = seek.ReadVarLong();
 							break;
 						}
 						case LogTagType.CompactPointer:
 						{
-							int level = (int) seek.ReadVarint();
+							int level = (int) seek.ReadVarLong();
 							var key = seek.ReadLengthPrefixedBytes();
-							versionEdit.CompactPointers[level] = key;
+							versionEdit.CompactPointers[level] = key.ToArray();
 							break;
 						}
 						case LogTagType.DeletedFile:
 						{
-							int level = (int) seek.ReadVarint();
-							ulong fileNumber = seek.ReadVarint();
+							int level = (int) seek.ReadVarLong();
+							ulong fileNumber = seek.ReadVarLong();
 							if (!versionEdit.DeletedFiles.ContainsKey(level)) versionEdit.DeletedFiles[level] = new List<ulong>();
 							versionEdit.DeletedFiles[level].Add(fileNumber);
 							if (!finalVersion.DeletedFiles.ContainsKey(level)) finalVersion.DeletedFiles[level] = new List<ulong>();
@@ -124,17 +126,17 @@ namespace MiNET.LevelDBTests
 						}
 						case LogTagType.NewFile:
 						{
-							int level = (int) seek.ReadVarint();
-							ulong fileNumber = seek.ReadVarint();
-							ulong fileSize = seek.ReadVarint();
+							int level = (int) seek.ReadVarLong();
+							ulong fileNumber = seek.ReadVarLong();
+							ulong fileSize = seek.ReadVarLong();
 							var smallest = seek.ReadLengthPrefixedBytes();
 							var largest = seek.ReadLengthPrefixedBytes();
 
 							FileMetadata fileMetadata = new FileMetadata();
 							fileMetadata.FileNumber = fileNumber;
 							fileMetadata.FileSize = fileSize;
-							fileMetadata.SmallestKey = smallest;
-							fileMetadata.LargestKey = largest;
+							fileMetadata.SmallestKey = smallest.ToArray();
+							fileMetadata.LargestKey = largest.ToArray();
 							if (!versionEdit.NewFiles.ContainsKey(level)) versionEdit.NewFiles[level] = new List<FileMetadata>();
 							versionEdit.NewFiles[level].Add(fileMetadata);
 							if (!finalVersion.NewFiles.ContainsKey(level)) finalVersion.NewFiles[level] = new List<FileMetadata>();
@@ -143,7 +145,7 @@ namespace MiNET.LevelDBTests
 						}
 						case LogTagType.PrevLogNumber:
 						{
-							versionEdit.PreviousLogNumber = seek.ReadVarint();
+							versionEdit.PreviousLogNumber = seek.ReadVarLong();
 							break;
 						}
 						default:
@@ -216,6 +218,7 @@ namespace MiNET.LevelDBTests
 			// https://github.com/google/leveldb/blob/master/doc/log_format.md
 
 			LogReader logReader = new LogReader(new FileInfo(@"TestWorld\000047.log"));
+			logReader.Open();
 
 			var result = logReader.Get(new byte[] {0xeb, 0xff, 0xff, 0xff, 0xf3, 0xff, 0xff, 0xff, 0x31});
 
@@ -242,20 +245,19 @@ namespace MiNET.LevelDBTests
 
 				if (record.LogRecordType != LogRecordType.Full) break;
 
-				Log.Debug($"{record}");
+				Log.Debug($"{record.ToString()}");
 
-				var datareader = new BinaryReader(new MemoryStream(record.Data));
+				var datareader = new SpanReader(record.Data);
 
 				long sequenceNumber = datareader.ReadInt64();
 				long size = datareader.ReadInt32();
 
-				while (datareader.BaseStream.Position < datareader.BaseStream.Length)
+				while (datareader.Position < datareader.Length)
 				{
 					byte recType = datareader.ReadByte();
 
-					ulong v1 = datareader.BaseStream.ReadVarint();
-					byte[] currentKey = new byte[v1];
-					datareader.Read(currentKey, 0, (int) v1);
+					ulong v1 = datareader.ReadVarLong();
+					var currentKey = datareader.Read(v1);
 
 					//CurrentKey = f5 ff ff ff eb ff ff ff 36
 
@@ -266,16 +268,15 @@ namespace MiNET.LevelDBTests
 					}
 
 					ulong v2 = 0;
-					byte[] currentVal = new byte[0];
+					ReadOnlySpan<byte> currentVal = ReadOnlySpan<byte>.Empty;
 					switch (recType)
 					{
 						case 1: // value
 						{
 							if (recType == 1)
 							{
-								v2 = datareader.BaseStream.ReadVarint();
-								currentVal = new byte[v2];
-								datareader.Read(currentVal, 0, (int) v2);
+								v2 = datareader.ReadVarLong();
+								currentVal = datareader.Read(v2);
 							}
 							break;
 						}
@@ -293,6 +294,92 @@ namespace MiNET.LevelDBTests
 			}
 
 			Assert.True(found);
+		}
+
+		[Test]
+		public void LevelDbWriteUserDataTest()
+		{
+			// Plan
+
+			LogWriter writer = new LogWriter();
+			var operations = new KeyValuePair<byte[], LogReader.ResultCacheEntry>[3];
+			byte[] key = FillArrayWithRandomBytes(20);
+			for (int i = 0; i < 3; i++)
+			{
+				var entry = new LogReader.ResultCacheEntry();
+				entry.ResultState = ResultState.Exist;
+				entry.Sequence = 10;
+				entry.Data = FillArrayWithRandomBytes(32768); // 32KB is maz size for a block, not that it matters for this
+				operations[i] = new KeyValuePair<byte[], LogReader.ResultCacheEntry>(key, entry);
+			}
+
+			// Do
+
+			ReadOnlySpan<byte> result = writer.EncodeBatch(operations);
+
+			// Check
+
+			SpanReader reader = new SpanReader(result);
+			Assert.AreEqual(10, reader.ReadInt64(), "Sequence number");
+			Assert.AreEqual(3, reader.ReadInt32(), "Operations count");
+
+			for (int i = 0; i < 3; i++)
+			{
+				var expectedKey = operations[i].Key;
+				var expectedData = operations[i].Value.Data;
+
+				Assert.AreEqual(1, reader.ReadByte(), "Operations type PUT");
+				var keyLen = reader.ReadVarLong();
+
+				Assert.AreEqual(expectedKey.Length, keyLen, "Key len");
+				Assert.AreEqual(expectedKey, reader.Read(keyLen).ToArray(), "Key");
+
+				var dataLen = reader.ReadVarLong();
+				Assert.AreEqual(expectedData.Length, dataLen, "Data len");
+				Assert.AreEqual(expectedData, reader.Read(dataLen).ToArray(), "Data");
+			}
+
+			// test encoding complete blocks
+
+			var stream = new MemoryStream();
+			writer.EncodeBlocks(stream, result);
+			Assert.Less(0, stream.Length);
+			stream.Position = 0;
+
+			// Roundtrip test by making sure i can read blocks I've encoded myself.
+
+			LogReader logReader = new LogReader(stream);
+			logReader.Open();
+			var cache = logReader._resultCache;
+			Assert.AreEqual(3, cache.Count);
+
+			int j = 0;
+			foreach (var entry in cache)
+			{
+				var expectedKey = operations[j].Key;
+				var expectedData = operations[j].Value.Data;
+
+				Assert.AreEqual(ResultState.Exist, entry.Value.ResultState, "Value exists");
+
+				Assert.AreEqual(expectedKey.Length, entry.Key.Length, "Key len");
+				Assert.AreEqual(expectedKey, entry.Key, "Key");
+
+				Assert.AreEqual(expectedData.Length, entry.Value.Data.Length, "Data len");
+				Assert.AreEqual(expectedData, entry.Value.Data, "Data");
+				j++;
+			}
+		}
+
+		private byte[] FillArrayWithRandomBytes(int size)
+		{
+			var bytes = new byte[size];
+			var random = new Random();
+			for (int i = 0; i < bytes.Length; i++)
+			{
+				bytes[i] = (byte) random.Next(255);
+			}
+
+			return bytes;
 		}
 	}
 }
