@@ -15,12 +15,12 @@ namespace MiNET.LevelDB
 	///     check each table file that overlaps the target key. leveldb searches each potential table file, level by level,
 	///     until finding the first that yields an exact match for requested key.
 	/// </summary>
-	public class Manifest
+	public class Manifest : IDisposable
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(Manifest));
 
 		private readonly DirectoryInfo _baseDirectory;
-		private Dictionary<ulong, TableReader> _tableCache = new Dictionary<ulong, TableReader>();
+		private BytewiseComparator _comparator = new BytewiseComparator();
 
 		public VersionEdit CurrentVersion { get; private set; }
 
@@ -36,15 +36,19 @@ namespace MiNET.LevelDB
 			CurrentVersion = ReadVersionEdit(reader);
 			Print(CurrentVersion);
 
-			foreach (var level in CurrentVersion.NewFiles)
+			foreach (var level in CurrentVersion.NewFiles) // Search all levels for file with matching index
 			{
 				foreach (FileMetadata tbl in level.Value)
 				{
-					if (!_tableCache.TryGetValue(tbl.FileNumber, out var tableReader))
+					if (Log.IsDebugEnabled) Log.Debug($"Found table file for key in level {level.Key} in file={tbl.FileNumber}");
+
+					Table tableReader = tbl.Table;
+					if (tableReader == null)
 					{
 						FileInfo f = new FileInfo(Path.Combine(_baseDirectory.FullName, $"{tbl.FileNumber:000000}.ldb"));
-						tableReader = new TableReader(f);
-						_tableCache.TryAdd(tbl.FileNumber, tableReader);
+						if (!f.Exists) throw new Exception($"Could not find table {f.FullName}");
+						tableReader = new Table(f);
+						tbl.Table = tableReader;
 					}
 				}
 			}
@@ -55,25 +59,25 @@ namespace MiNET.LevelDB
 			if (!"leveldb.BytewiseComparator".Equals(CurrentVersion.Comparator, StringComparison.InvariantCultureIgnoreCase))
 				throw new Exception($"Found record, but contains invalid or unsupported comparator: {CurrentVersion.Comparator}");
 
-			BytewiseComparator comparator = new BytewiseComparator();
-
-			foreach (var level in CurrentVersion.NewFiles.OrderBy(kvp => kvp.Key)) // Search all levels for file with matching index
+			foreach (var level in CurrentVersion.NewFiles) // Search all levels for file with matching index
 			{
 				foreach (FileMetadata tbl in level.Value)
 				{
-					var smallestKey = tbl.SmallestKey.UserKey();
-					var largestKey = tbl.LargestKey.UserKey();
+					var smallestKey = tbl.SmallestKey.AsSpan().UserKey();
+					var largestKey = tbl.LargestKey.AsSpan().UserKey();
 					//if (smallestKey.Length == 0 || largestKey.Length == 0) continue;
 
-					if (comparator.Compare(key, smallestKey) >= 0 && comparator.Compare(key, largestKey) <= 0)
+					if (_comparator.Compare(key, smallestKey) >= 0 && _comparator.Compare(key, largestKey) <= 0)
 					{
-						Log.Debug($"Found table file for key in level {level.Key} in file={tbl.FileNumber}");
+						if (Log.IsDebugEnabled) Log.Debug($"Found table file for key in level {level.Key} in file={tbl.FileNumber}");
 
-						if (!_tableCache.TryGetValue(tbl.FileNumber, out var tableReader))
+						Table tableReader = tbl.Table;
+						if (tableReader == null)
 						{
 							FileInfo f = new FileInfo(Path.Combine(_baseDirectory.FullName, $"{tbl.FileNumber:000000}.ldb"));
-							tableReader = new TableReader(f);
-							_tableCache.TryAdd(tbl.FileNumber, tableReader);
+							if (!f.Exists) throw new Exception($"Could not find table {f.FullName}");
+							tableReader = new Table(f);
+							tbl.Table = tableReader;
 						}
 
 						var result = tableReader.Get(key);
@@ -203,6 +207,7 @@ namespace MiNET.LevelDB
 					if (deletedFiles.Contains(newFile.FileNumber)) levelKvp.Value.Remove(newFile);
 				}
 			}
+			finalVersion.NewFiles = finalVersion.NewFiles.OrderBy(kvp => kvp.Key).ToDictionary(pair => pair.Key, pair => pair.Value);
 
 			finalVersion.Comparator = comparator;
 			finalVersion.LogNumber = logNumber;
@@ -278,6 +283,25 @@ namespace MiNET.LevelDB
 
 			// 8 was used for large value refs
 			PrevLogNumber = 9
+		}
+
+		public void Close()
+		{
+			var tableFiles = CurrentVersion.NewFiles;
+			CurrentVersion = null;
+			foreach (var level in tableFiles) // Search all levels for file with matching index
+			{
+				foreach (FileMetadata tbl in level.Value)
+				{
+					tbl.Table?.Dispose();
+					tbl.Table = null;
+				}
+			}
+		}
+
+		public void Dispose()
+		{
+			Close();
 		}
 	}
 }

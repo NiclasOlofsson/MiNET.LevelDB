@@ -64,7 +64,6 @@ namespace MiNET.LevelDB
 			int index = (int) (position >> _baseLg);
 			if (index >= num)
 			{
-				throw new Exception();
 				return true; // Maybe even on errors
 			}
 
@@ -74,8 +73,7 @@ namespace MiNET.LevelDB
 
 			if (start > limit || limit > _filterBlock.Length)
 			{
-				throw new Exception();
-				return false; // empty filters do no match any keys
+				return false; // nothing in this filter, so don't match key
 			}
 
 			return KeyMayMatch(key, _filterBlock.Slice(start, limit - start).Span);

@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using Force.Crc32;
 using log4net;
 using MiNET.LevelDB.Utils;
 
@@ -13,24 +12,23 @@ namespace MiNET.LevelDB
 		const int BlockSize = 32768; //TODO: This is the size of the blocks. Note they are padded. Use it!
 		const int HeaderSize = 4 + 2 + 1; // Max block size need to include space for header.
 
-		protected readonly FileInfo _file;
-		private Stream _logStream; // global log stream
+		private Stream _stream; // global log stream
 
-		internal LogReader(Stream logStream = null)
+		// For testing
+		internal LogReader(Stream stream = null)
 		{
-			_logStream = logStream;
+			_stream = stream;
 		}
 
 		public LogReader(FileInfo file)
 		{
-			_file = file;
-			if (!_file.Exists)
+			if (!file.Exists)
 			{
-				_logStream = new MemoryStream();
+				_stream = new MemoryStream();
 			}
 			else
 			{
-				_logStream = File.OpenRead(file.FullName);
+				_stream = File.OpenRead(file.FullName);
 			}
 		}
 
@@ -45,16 +43,16 @@ namespace MiNET.LevelDB
 
 		protected void Reset()
 		{
-			_logStream.Position = 0;
+			_stream.Position = 0;
 		}
 
 		public Record ReadRecord()
 		{
 			Record lastRecord = Record.Undefined;
 
-			while (_logStream.Position < _logStream.Length)
+			while (_stream.Position < _stream.Length)
 			{
-				Stream stream = _logStream;
+				Stream stream = _stream;
 
 				while (true)
 				{
@@ -117,6 +115,10 @@ namespace MiNET.LevelDB
 
 		private Record ReadFragments(Stream stream)
 		{
+			// Blocks may be padded if size left is less than the header
+			int sizeLeft = (int) (BlockSize - stream.Position%BlockSize);
+			if (sizeLeft < 7) stream.Seek(sizeLeft, SeekOrigin.Current);
+
 			// Header is checksum (4 bytes), length (2 bytes), type (1 byte).
 			byte[] header = new byte[4 + 2 + 1];
 			if (stream.Read(header, 0, header.Length) != header.Length) return new Record(LogRecordType.BadRecord);
@@ -127,12 +129,13 @@ namespace MiNET.LevelDB
 
 			byte type = header[6];
 
-			byte[] data = new byte[length];
-			stream.Read(data, 0, data.Length);
+			if (length > stream.Length - stream.Position) throw new Exception("Not enough data in stream to read");
 
-			uint actualCrc = Crc32CAlgorithm.Compute(new[] {type});
-			actualCrc = Crc32CAlgorithm.Append(actualCrc, data);
-			actualCrc = BlockHandle.Mask(actualCrc);
+			byte[] data = new byte[length];
+			int read = stream.Read(data, 0, data.Length);
+
+			uint actualCrc = Crc32C.Compute(type);
+			actualCrc = Crc32C.Mask(Crc32C.Append(actualCrc, data));
 
 			Record rec = new Record()
 			{
@@ -152,7 +155,7 @@ namespace MiNET.LevelDB
 
 		public void Dispose()
 		{
-			_logStream?.Dispose();
+			_stream?.Dispose();
 		}
 	}
 

@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using System.IO.Compression;
-using Force.Crc32;
+using System.IO.MemoryMappedFiles;
 using log4net;
 using MiNET.LevelDB.Utils;
 
@@ -9,6 +9,7 @@ namespace MiNET.LevelDB
 {
 	public class BlockHandle
 	{
+		private const int BlockTrailerSize = 5; // compression type (1) + checksum (4)
 		private static readonly ILog Log = LogManager.GetLogger(typeof(BlockHandle));
 
 		public ulong Offset { get; }
@@ -20,6 +21,12 @@ namespace MiNET.LevelDB
 			Length = length;
 		}
 
+		public static BlockHandle ReadBlockHandle(ReadOnlySpan<byte> data)
+		{
+			var spanReader = new SpanReader(data);
+			return ReadBlockHandle(ref spanReader);
+		}
+
 		public static BlockHandle ReadBlockHandle(ref SpanReader reader)
 		{
 			ulong offset = reader.ReadVarLong();
@@ -28,23 +35,24 @@ namespace MiNET.LevelDB
 			return new BlockHandle(offset, length);
 		}
 
-		public byte[] ReadBlock(Stream stream)
+		public byte[] ReadBlock(MemoryMappedFile memFile, bool verifyChecksum = false)
 		{
-			return ReadBlock(stream, this);
+			using (var stream = memFile.CreateViewStream((long) Offset, (long) Length + BlockTrailerSize, MemoryMappedFileAccess.Read))
+			{
+				//if (stream.Position != 0) throw new Exception($"Position was {stream.Position}. Expected {0}");
+				//if (stream.PointerOffset != (long) Offset%65536) throw new Exception($"Offset was {stream.PointerOffset}. Expected {Offset}");
+				//if(stream.Length != (long) Length) throw new Exception($"Length was {stream.Length}. Expected {Length}");
+				return ReadBlock(stream, Length, verifyChecksum);
+			}
 		}
 
-
-		private static byte[] ReadBlock(Stream stream, BlockHandle handle)
+		private byte[] ReadBlock(Stream stream, ulong length, bool verifyChecksum)
 		{
-			// File format contains a sequence of blocks where each block has:
-			//    block_data: uint8[n]
-			//    type: uint8
-			//    crc: uint32
+			verifyChecksum = verifyChecksum || Database.ParanoidMode;
 
-			int length = (int) handle.Length;
 			byte[] data = new byte[length];
-			stream.Seek((long) handle.Offset, SeekOrigin.Begin);
-			stream.Read(data, 0, length);
+			stream.Seek((long) 0, SeekOrigin.Begin);
+			stream.Read(data, 0, (int) length);
 
 			byte compressionType = (byte) stream.ReadByte();
 
@@ -52,12 +60,14 @@ namespace MiNET.LevelDB
 			stream.Read(checksum, 0, checksum.Length);
 			uint crc = BitConverter.ToUInt32(checksum);
 
-			uint checkCrc = Crc32CAlgorithm.Compute(data, 0, length);
-			checkCrc = Mask(Crc32CAlgorithm.Append(checkCrc, new[] {compressionType}));
+			if (verifyChecksum)
+			{
+				uint checkCrc = Crc32C.Compute(data);
+				//checkCrc = Crc32C.Mask(Crc32C.Append(checkCrc, new[] { compressionType }));
+				checkCrc = Crc32C.Mask(Crc32C.Append(checkCrc, compressionType));
 
-			if (crc != checkCrc) throw new InvalidDataException("Corrupted data. Failed checksum test");
-
-			Log.Debug($"Compression={compressionType}, crc={crc}, checkcrc={checkCrc}");
+				if (crc != checkCrc) throw new InvalidDataException($"Corrupted data. Failed checksum test. expected={crc}, actual={checkCrc}");
+			}
 
 			if (compressionType == 0)
 			{
@@ -70,37 +80,30 @@ namespace MiNET.LevelDB
 			}
 			else if (compressionType >= 2)
 			{
-				var dataStream = new MemoryStream(data);
-
-				if (compressionType == 2)
+				using (var dataStream = new MemoryStream(data))
 				{
-					if (dataStream.ReadByte() != 0x78)
+					if (compressionType == 2)
 					{
-						throw new InvalidDataException("Incorrect ZLib header. Expected 0x78 0x9C");
+						if (dataStream.ReadByte() != 0x78)
+						{
+							throw new InvalidDataException("Incorrect ZLib header. Expected 0x78 0x9C");
+						}
+						dataStream.ReadByte();
 					}
-					dataStream.ReadByte();
-				}
 
-				using (var defStream2 = new DeflateStream(dataStream, CompressionMode.Decompress))
-				{
-					// Get actual package out of bytes
-					using (MemoryStream destination = new MemoryStream())
+					using (var defStream2 = new DeflateStream(dataStream, CompressionMode.Decompress))
 					{
-						defStream2.CopyTo(destination);
-						data = destination.ToArray();
+						// Get actual package out of bytes
+						using (MemoryStream destination = new MemoryStream())
+						{
+							defStream2.CopyTo(destination);
+							data = destination.ToArray();
+						}
 					}
 				}
 			}
 
 			return data;
-		}
-
-		const uint MaskDelta = 0xa282ead8;
-
-		public static uint Mask(uint crc)
-		{
-			// Rotate right by 15 bits and add a constant.
-			return ((crc >> 15) | (crc << 17)) + MaskDelta;
 		}
 
 		public override string ToString()

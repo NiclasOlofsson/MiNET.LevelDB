@@ -1,14 +1,17 @@
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using log4net;
-using MiNET.LevelDB;
+using log4net.Core;
+using log4net.Repository.Hierarchy;
 using MiNET.LevelDB.Utils;
 using NUnit.Framework;
 
-namespace MiNET.LevelDBTests
+namespace MiNET.LevelDB.Tests
 {
 	[TestFixture]
 	public class LevelDbApiTests
@@ -42,8 +45,10 @@ namespace MiNET.LevelDBTests
 		[Test]
 		public void LevelDbOpenFromDirectory()
 		{
-			var db = new Database(directory);
-			db.Open();
+			using (var db = new Database(directory))
+			{
+				db.Open();
+			}
 		}
 
 		[Test]
@@ -51,18 +56,23 @@ namespace MiNET.LevelDBTests
 		{
 			DirectoryInfo tempDir = new DirectoryInfo(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
 
-			var db = new Database(tempDir);
-			db.CreateIfMissing = true;
-			db.Open();
+			using (var db = new Database(tempDir))
+			{
+				db.CreateIfMissing = true;
+				db.Open();
+			}
 			//var result = db.Get(testKeys.Last());
 		}
 
 		[Test]
 		public void LevelDbGetValueFromKey()
 		{
-			var db = new Database(directory);
-			db.Open();
-			var result = db.Get(testKeys.Last());
+			byte[] result;
+			using (var db = new Database(directory))
+			{
+				db.Open();
+				result = db.Get(testKeys.Last());
+			}
 			// 08 01 08 00 00 40 44 44 14 41 44 00 70 41 44 44  .....@DD.AD.pADD
 
 
@@ -72,18 +82,21 @@ namespace MiNET.LevelDBTests
 		[Test]
 		public void LevelDbRepeatedGetValues()
 		{
-			var db = new Database(directory);
-			db.Open();
-
-			Stopwatch sw = new Stopwatch();
-			sw.Restart();
-			for (int i = 0; i < 100*16/6; i++)
+			Stopwatch sw;
+			using (var db = new Database(directory))
 			{
-				foreach (var testKey in testKeys)
+				db.Open();
+
+				sw = new Stopwatch();
+				sw.Restart();
+				for (int i = 0; i < 100*16/6; i++)
 				{
-					var result = db.Get(testKey);
-					Assert.IsNotNull(result);
-					//Assert.IsNotNull(result, result != null ? "" : testKey.HexDump());
+					foreach (var testKey in testKeys)
+					{
+						var result = db.Get(testKey);
+						Assert.IsNotNull(result);
+						//Assert.IsNotNull(result, result != null ? "" : testKey.HexDump());
+					}
 				}
 			}
 			var time = sw.ElapsedMilliseconds;
@@ -99,19 +112,25 @@ namespace MiNET.LevelDBTests
 		public void LevelDbRepeatedGetValueFromKey(byte[] testKey)
 		{
 			// fa ff ff ff e7 ff ff ff 2f 03
-			var db = new Database(directory);
-			db.Open();
+			byte[] result;
+			using (var db = new Database(directory))
+			{
+				db.Open();
 
-			var result = db.Get(testKey);
+				result = db.Get(testKey);
+			}
 			Assert.IsNotNull(result, testKey.HexDump());
 		}
 
 		[Test]
 		public void LevelDbOpenFromMcpeWorldFile()
 		{
-			var db = new Database(new DirectoryInfo("My World.mcworld"));
-			db.Open();
-			var result = db.Get(new byte[] {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2f, 0x00});
+			byte[] result;
+			using (var db = new Database(new DirectoryInfo("My World.mcworld")))
+			{
+				db.Open();
+				result = db.Get(new byte[] {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2f, 0x00});
+			}
 			// Key=(+0) f7 ff ff ff, f3 ff ff ff, 2f 03 01 ab 5e 00 00 00 00 00
 			// Key=(+8) f7 ff ff ff, f4 ff ff ff, 2f 00 01 0c 5d 00 00 00 00 00  
 			// Key=(+8) 00 00 00 00, 00 00 00 00, 2f, 00, 01 b1 01 00 00 00 00 00
@@ -124,83 +143,71 @@ namespace MiNET.LevelDBTests
 		[Test]
 		public void BedrockChunkLoadTest()
 		{
-			var db = new Database(new DirectoryInfo("My World.mcworld"));
-			db.Open();
-
-			//{
-			//	var key = BitConverter.GetBytes(16).Concat(BitConverter.GetBytes(12)).Concat(new byte[] { 0x2f, 0 }).ToArray();
-			//	var chunk = db.Get(key);
-			//	Assert.IsNull(chunk);
-			//	return;
-			//}
-
-			//Hierarchy hierarchy = (Hierarchy) LogManager.GetRepository(Assembly.GetEntryAssembly());
-			//hierarchy.Root.Level = Level.Info;
-
-			var chunks = GenerateChunks(new ChunkCoordinates(0, 0), 20);
-
-			Assert.IsTrue(BitConverter.IsLittleEndian);
-
-			Stopwatch sw = new Stopwatch();
-			sw.Restart();
-
 			int count = 0;
-			var repetitions = 1;
+			int countMissed = 0;
 			ulong totalSize = 0;
-			for (int i = 0; i < repetitions; i++)
+			int numberOfChunks = 10000;
+			var chunks = GenerateChunks(new ChunkCoordinates(0, 0), 8).OrderBy(kvp => kvp.Value).ToArray();
+
+			using (var db = new Database(new DirectoryInfo("My World.mcworld")))
 			{
-				foreach (var pair in chunks.OrderBy(kvp => kvp.Value))
+				db.Open();
+
+				//Hierarchy hierarchy = (Hierarchy)LogManager.GetRepository(Assembly.GetEntryAssembly());
+				//hierarchy.Root.Level = Level.Info;
+
+				Assert.IsTrue(BitConverter.IsLittleEndian);
+
+				Stopwatch sw = new Stopwatch();
+				sw.Restart();
+
+				while (count < numberOfChunks)
 				{
-					var coordinates = pair.Key;
-
-					var index = BitConverter.GetBytes(coordinates.X).Concat(BitConverter.GetBytes(coordinates.Z));
-
-					var versionKey = index.Concat(new byte[] {0x76}).ToArray();
-					var version = db.Get(versionKey);
-
-					for (byte y = 0; y < 16; y++)
+					foreach (var pair in chunks)
 					{
-						var key = index.Concat(new byte[] {0x2f, y}).ToArray();
-						var chunk = db.Get(key);
+						if (count >= numberOfChunks) break;
 
-						if (y == 0)
+						var coordinates = pair.Key;
+
+						var index = BitConverter.GetBytes(coordinates.X).Concat(BitConverter.GetBytes(coordinates.Z)).ToArray();
+						var version = db.Get(index.Concat(new byte[] {0x76}).ToArray());
+
+						for (byte y = 0; y < 16; y++)
 						{
-							if (chunk == null)
+							var chunk = db.Get(index.Concat(new byte[] {0x2f, y}).ToArray());
+
+							if (y == 0)
 							{
-								Log.Debug($"Missing chunk at coord={coordinates}");
+								if (chunk != null)
+								{
+									count++;
+									//Log.Debug($"Found chunk at coord={coordinates}");
+								}
+								else
+								{
+									countMissed++;
+									//Log.Debug($"Missing chunk at coord={coordinates}");
+								}
 							}
-							else
-							{
-								count++;
-								Log.Debug($"Found chunk at coord={coordinates}");
-							}
+
+							if (chunk == null) break;
+
+							totalSize += (ulong) chunk.Length;
 						}
 
-						if (chunk == null) break;
-
-						totalSize += (ulong) chunk.Length;
+						var flatDataBytes = db.Get(index.Concat(new byte[] {0x2D}).ToArray());
+						if (flatDataBytes != null)
+							totalSize += (ulong) flatDataBytes.Length;
+						var blockEntityBytes = db.Get(index.Concat(new byte[] {0x31}).ToArray());
+						if (blockEntityBytes != null)
+							totalSize += (ulong) blockEntityBytes.Length;
 					}
-
-					var flatDataBytes = db.Get(index.Concat(new byte[] {0x2D}).ToArray());
-					if (flatDataBytes != null)
-						totalSize += (ulong) flatDataBytes.Length;
-					var blockEntityBytes = db.Get(index.Concat(new byte[] {0x31}).ToArray());
-					if (blockEntityBytes != null)
-						totalSize += (ulong) blockEntityBytes.Length;
 				}
+
+				var time = sw.ElapsedMilliseconds;
+				Log.Info($"Fetch {count} chunk columns in {time}ms");
+				Console.WriteLine($"Fetch {count} chunk columns in {time}ms. Total size={totalSize/1000000}MB. Missing={countMissed}");
 			}
-
-			var time = sw.ElapsedMilliseconds;
-			Log.Info($"Fetch {count} chunk columns in {time}ms");
-			Console.WriteLine($"Fetch {count} chunk columns in {time}ms. Total size={totalSize/1000000}MB");
-
-			{
-				var key = BitConverter.GetBytes(32300009).Concat(BitConverter.GetBytes(10000456)).Concat(new byte[] {0x2f, 0}).ToArray();
-				var chunk = db.Get(key);
-				Assert.IsNull(chunk);
-			}
-
-			Assert.AreEqual(963*repetitions, count);
 		}
 
 		public Dictionary<ChunkCoordinates, double> GenerateChunks(ChunkCoordinates chunkPosition, double radius)
@@ -247,9 +254,5 @@ namespace MiNET.LevelDBTests
 		{
 			return $"{nameof(X)}: {X}, {nameof(Z)}: {Z}";
 		}
-	}
-
-	public class McpeWrapper
-	{
 	}
 }

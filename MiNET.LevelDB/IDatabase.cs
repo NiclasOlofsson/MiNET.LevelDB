@@ -2,11 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Runtime.CompilerServices;
 using log4net;
+
+[assembly: InternalsVisibleTo("MiNET.LevelDB.Tests")]
 
 namespace MiNET.LevelDB
 {
-	public interface IDatabase
+	public interface IDatabase : IDisposable
 	{
 		DirectoryInfo Directory { get; }
 
@@ -22,8 +25,6 @@ namespace MiNET.LevelDB
 
 		void Close();
 
-		void Destroy();
-
 		bool IsClosed();
 	}
 
@@ -36,6 +37,8 @@ namespace MiNET.LevelDB
 
 		public DirectoryInfo Directory { get; private set; }
 		public bool CreateIfMissing { get; set; } = false;
+
+		public static bool ParanoidMode { get; set; }
 
 		public Database(DirectoryInfo dbDirectory)
 		{
@@ -60,14 +63,7 @@ namespace MiNET.LevelDB
 			if (_manifest == null) throw new InvalidOperationException("No manifest for database. Did you open it?");
 			if (_newMemCache == null) throw new InvalidOperationException("No current memory cache for database. Did you open it?");
 
-			//ResultStatus result;
-			//result = _memCache.Get(key);
-			//if (result.State == ResultState.Deleted || result.State == ResultState.Exist)
-			//{
-			//	if (result.Data == ReadOnlySpan<byte>.Empty) return null;
-			//	return result.Data.ToArray();
-			//}
-			var result = _newMemCache.Get(key);
+			ResultStatus result = _newMemCache.Get(key);
 			if (result.State == ResultState.Deleted || result.State == ResultState.Exist)
 			{
 				if (result.Data == ReadOnlySpan<byte>.Empty) return null;
@@ -104,6 +100,8 @@ namespace MiNET.LevelDB
 					ZipFile.ExtractToDirectory(originalFile.FullName, newDirPath, true);
 					Log.Warn($"Created new temp directory: {Directory.FullName}");
 				}
+
+				Log.Warn($"Extracted bedrock world and set new DB directory to: {Directory.FullName}");
 			}
 
 			// Verify that directory exists
@@ -164,25 +162,37 @@ namespace MiNET.LevelDB
 
 		public void Close()
 		{
-			var nextLogNumber = _manifest.CurrentVersion.LogNumber + 1;
-			_manifest = null;
-
-			var memCache = _newMemCache;
-			_newMemCache = null;
-			using (var logWriter = new LogWriter(new FileInfo(Path.Combine(Directory.FullName, $"{nextLogNumber:000000}.log"))))
+			if (_newMemCache != null)
 			{
-				memCache.Write(logWriter);
-			}
-		}
+				var memCache = _newMemCache;
+				_newMemCache = null;
 
-		public void Destroy()
-		{
-			throw new NotImplementedException();
+				if (_manifest != null)
+				{
+					var nextLogNumber = _manifest.CurrentVersion.LogNumber + 1;
+					using (var logWriter = new LogWriter(new FileInfo(Path.Combine(Directory.FullName, $"{nextLogNumber:000000}.log"))))
+					{
+						memCache.Write(logWriter);
+					}
+				}
+			}
+
+			if (_manifest != null)
+			{
+				var temp = _manifest;
+				_manifest = null;
+				temp.Close();
+			}
 		}
 
 		public bool IsClosed()
 		{
 			throw new NotImplementedException();
+		}
+
+		public void Dispose()
+		{
+			Close();
 		}
 	}
 

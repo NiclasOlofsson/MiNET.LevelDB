@@ -2,10 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using log4net;
-using MiNET.LevelDB;
 using NUnit.Framework;
 
-namespace MiNET.LevelDBTests
+namespace MiNET.LevelDB.Tests
 {
 	[TestFixture]
 	public class BloomFilterPolicyTest

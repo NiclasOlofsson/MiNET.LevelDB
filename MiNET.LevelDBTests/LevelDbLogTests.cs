@@ -2,11 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using log4net;
-using MiNET.LevelDB;
 using MiNET.LevelDB.Utils;
 using NUnit.Framework;
 
-namespace MiNET.LevelDBTests
+namespace MiNET.LevelDB.Tests
 {
 	// https://github.com/basho/leveldb/wiki/mv-overview
 
@@ -34,13 +33,15 @@ namespace MiNET.LevelDBTests
 
 			// 08 01 02 00 00 01 00 00 00 00 00 00 00 00 00 00  ................
 
-			Manifest manifest;
-			using (var reader = new LogReader(new FileInfo($@"{directory}{manifestFilename}")))
+			ResultStatus result;
+			using (Manifest manifest = new Manifest(new DirectoryInfo(directory)))
 			{
-				manifest = new Manifest(new DirectoryInfo(directory));
-				manifest.Load(reader);
+				using (var reader = new LogReader(new FileInfo($@"{directory}{manifestFilename}")))
+				{
+					manifest.Load(reader);
+				}
+				result = manifest.Get(new byte[] {0xf7, 0xff, 0xff, 0xff, 0xfd, 0xff, 0xff, 0xff, 0x2f, 0x05,});
 			}
-			var result = manifest.Get(new byte[] {0xf7, 0xff, 0xff, 0xff, 0xfd, 0xff, 0xff, 0xff, 0x2f, 0x05,});
 			Assert.AreEqual(new byte[] {0x08, 0x01, 0x02, 0x0, 0x0}, result.Data.Slice(0, 5).ToArray());
 		}
 
@@ -136,9 +137,9 @@ namespace MiNET.LevelDBTests
 			// Plan
 
 			var operations = new KeyValuePair<byte[], MemCache.ResultCacheEntry>[3];
-			byte[] key = FillArrayWithRandomBytes(20);
 			for (int i = 0; i < 3; i++)
 			{
+				byte[] key = FillArrayWithRandomBytes(20);
 				var entry = new MemCache.ResultCacheEntry();
 				entry.ResultState = ResultState.Exist;
 				entry.Sequence = 10;
@@ -176,8 +177,8 @@ namespace MiNET.LevelDBTests
 
 			// test encoding complete blocks
 
-			LogWriter writer = new LogWriter();
 			var stream = new MemoryStream();
+			LogWriter writer = new LogWriter(stream);
 			writer.EncodeBlocks(stream, result);
 			Assert.Less(0, stream.Length);
 			stream.Position = 0;

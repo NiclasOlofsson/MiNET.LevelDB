@@ -4,7 +4,7 @@ using MiNET.LevelDB;
 using MiNET.LevelDB.Utils;
 using NUnit.Framework;
 
-namespace MiNET.LevelDBTests
+namespace MiNET.LevelDB.Tests
 {
 	[TestFixture]
 	public class LevelDbTableTests
@@ -22,9 +22,11 @@ namespace MiNET.LevelDBTests
 		public void LevelDbReadFindInTableTest()
 		{
 			FileInfo fileInfo = new FileInfo(@"TestWorld\000050.ldb");
-			TableReader table = new TableReader(fileInfo);
-
-			var result = table.Get(new byte[] {0xf6, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x2f, 0x00,});
+			ResultStatus result;
+			using (Table table = new Table(fileInfo))
+			{
+				result = table.Get(new byte[] { 0xf6, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x2f, 0x00, });
+			}
 
 			if (result.Data != null)
 			{

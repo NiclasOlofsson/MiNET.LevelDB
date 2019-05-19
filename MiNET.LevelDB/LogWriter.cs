@@ -1,11 +1,7 @@
 using System;
 using System.IO;
-using System.Runtime.CompilerServices;
-using Force.Crc32;
 using log4net;
 using MiNET.LevelDB.Utils;
-
-[assembly: InternalsVisibleTo("MiNET.LevelDBTests")]
 
 namespace MiNET.LevelDB
 {
@@ -17,25 +13,31 @@ namespace MiNET.LevelDB
 		const int HeaderSize = 4 + 2 + 1; // Max block size need to include space for header.
 
 		private readonly FileInfo _file;
-		private FileStream _fileStream;
+		private Stream _stream;
+		private bool _keepOpen;
 
 		internal LogWriter(FileInfo file)
 		{
 			_file = file;
 		}
 
-		internal LogWriter()
+		// For testing
+		internal LogWriter(Stream stream, bool keepOpen = true)
 		{
+			_stream = stream;
+			_keepOpen = keepOpen;
 		}
 
 		internal void EncodeBlocks(ReadOnlySpan<byte> data)
 		{
-			if (_fileStream == null)
+			if (_stream == null)
 			{
-				_fileStream = _file.OpenWrite();
+				_keepOpen = false;
+				if (_file.Exists) _file.Delete();
+				_stream = _file.OpenWrite();
 			}
 
-			EncodeBlocks(_fileStream, data);
+			EncodeBlocks(_stream, data);
 		}
 
 
@@ -55,6 +57,7 @@ namespace MiNET.LevelDB
 				{
 					if (sizeLeft < 7)
 					{
+						//throw new Exception($"Size left={sizeLeft}");
 						// pad with zeros
 						stream.Seek(sizeLeft, SeekOrigin.Current);
 						currentRecordType = LogRecordType.Zero;
@@ -63,6 +66,7 @@ namespace MiNET.LevelDB
 
 					if (sizeLeft == 7)
 					{
+						//throw new Exception($"Size left={sizeLeft}");
 						// emit empty first block
 						currentRecordType = LogRecordType.First;
 						WriteFragment(stream, currentRecordType, ReadOnlySpan<byte>.Empty);
@@ -105,9 +109,8 @@ namespace MiNET.LevelDB
 
 		private void WriteFragment(Stream stream, LogRecordType recordType, in ReadOnlySpan<byte> fragmentData)
 		{
-			uint crc = Crc32CAlgorithm.Compute(new[] {(byte) recordType});
-			crc = Crc32CAlgorithm.Append(crc, fragmentData.ToArray());
-			crc = BlockHandle.Mask(crc);
+			uint crc = Crc32C.Compute((byte) recordType);
+			crc = Crc32C.Mask(Crc32C.Append(crc, fragmentData));
 
 			stream.Write(BitConverter.GetBytes(crc));
 			stream.Write(BitConverter.GetBytes((ushort) fragmentData.Length));
@@ -122,7 +125,7 @@ namespace MiNET.LevelDB
 
 		public void Dispose()
 		{
-			_fileStream?.Dispose();
+			if (!_keepOpen) _stream?.Dispose();
 		}
 	}
 }

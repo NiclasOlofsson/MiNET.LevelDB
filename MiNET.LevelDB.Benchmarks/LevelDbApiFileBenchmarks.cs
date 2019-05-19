@@ -3,43 +3,42 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Diagnostics.Windows.Configs;
 using log4net;
 using log4net.Core;
 using log4net.Repository.Hierarchy;
 
-namespace MiNET.LevelDB.Console
+namespace MiNET.LevelDB.Benchmarks
 {
-	class Program
+	[MemoryDiagnoser]
+	[GcServer(true)]
+	public class LevelDbApiFileBenchmarks
 	{
-		private static readonly ILog Log = LogManager.GetLogger(typeof(Program));
-
-
-		static void Main(string[] args)
-		{
-			Hierarchy hierarchy = (Hierarchy)LogManager.GetRepository(Assembly.GetEntryAssembly());
-			hierarchy.Root.Level = Level.Error;
-
-			var program = new Program();
-			System.Console.WriteLine("Start");
-			program.GlobalSetup();
-			System.Console.WriteLine("Start");
-			program.BedrockChunkLoadTest();
-			System.Console.WriteLine("Start");
-		}
-
-		private KeyValuePair<ChunkCoordinates, double>[] _chunks;
-
+		[GlobalSetup]
 		public void GlobalSetup()
 		{
+			Hierarchy hierarchy = (Hierarchy) LogManager.GetRepository(Assembly.GetEntryAssembly());
+			hierarchy.Root.Level = Level.Error;
+
 			_chunks = GenerateChunks(new ChunkCoordinates(0, 0), 8).OrderBy(kvp => kvp.Value).ToArray();
 		}
 
-		public int NumberOfChunks = 1500;
+		[GlobalCleanup]
+		public void GlobalCleanup()
+		{
+		}
 
+
+		private KeyValuePair<ChunkCoordinates, double>[] _chunks;
+
+		[Params(100, 1_000)] public int NumberOfChunks = 0;
+
+		[Benchmark]
 		public void BedrockChunkLoadTest()
 		{
 			int count = 0;
-			//while (count < NumberOfChunks)
+			while (count < NumberOfChunks)
 			{
 				using (var db = new Database(new DirectoryInfo("My World.mcworld")))
 				{
@@ -100,22 +99,22 @@ namespace MiNET.LevelDB.Console
 
 			return newOrders;
 		}
-	}
 
-	public class ChunkCoordinates
-	{
-		public ChunkCoordinates(int x, int z)
+		public class ChunkCoordinates
 		{
-			X = x;
-			Z = z;
-		}
+			public ChunkCoordinates(int x, int z)
+			{
+				X = x;
+				Z = z;
+			}
 
-		public int X { get; set; }
-		public int Z { get; set; }
+			public int X { get; set; }
+			public int Z { get; set; }
 
-		public override string ToString()
-		{
-			return $"{nameof(X)}: {X}, {nameof(Z)}: {Z}";
+			public override string ToString()
+			{
+				return $"{nameof(X)}: {X}, {nameof(Z)}: {Z}";
+			}
 		}
 	}
 }

@@ -3,48 +3,49 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using BenchmarkDotNet.Attributes;
 using log4net;
 using log4net.Core;
 using log4net.Repository.Hierarchy;
 
-namespace MiNET.LevelDB.Console
+namespace MiNET.LevelDB.Benchmarks
 {
-	class Program
+	[MemoryDiagnoser]
+	[GcServer(true)]
+	public class LevelDbApiBenchmarks
 	{
-		private static readonly ILog Log = LogManager.GetLogger(typeof(Program));
-
-
-		static void Main(string[] args)
+		[GlobalSetup]
+		public void GlobalSetup()
 		{
-			Hierarchy hierarchy = (Hierarchy)LogManager.GetRepository(Assembly.GetEntryAssembly());
+			Hierarchy hierarchy = (Hierarchy) LogManager.GetRepository(Assembly.GetEntryAssembly());
 			hierarchy.Root.Level = Level.Error;
 
-			var program = new Program();
-			System.Console.WriteLine("Start");
-			program.GlobalSetup();
-			System.Console.WriteLine("Start");
-			program.BedrockChunkLoadTest();
-			System.Console.WriteLine("Start");
+			_chunks = GenerateChunks(new ChunkCoordinates(0, 0), 8).OrderBy(kvp => kvp.Value).ToArray();
+			_db = new Database(new DirectoryInfo("My World.mcworld"));
+			_db.Open();
 		}
+
+		[GlobalCleanup]
+		public void GlobalCleanup()
+		{
+			_db.Close();
+		}
+
 
 		private KeyValuePair<ChunkCoordinates, double>[] _chunks;
 
-		public void GlobalSetup()
-		{
-			_chunks = GenerateChunks(new ChunkCoordinates(0, 0), 8).OrderBy(kvp => kvp.Value).ToArray();
-		}
+		[Params(100, 1_000, 10_000, 100_000)] public int NumberOfChunks = 0;
+		private Database _db;
 
-		public int NumberOfChunks = 1500;
-
+		[Benchmark]
 		public void BedrockChunkLoadTest()
 		{
-			int count = 0;
-			//while (count < NumberOfChunks)
 			{
-				using (var db = new Database(new DirectoryInfo("My World.mcworld")))
-				{
-					db.Open();
+				var db = _db;
 
+				int count = 0;
+				while (count < NumberOfChunks)
+				{
 					foreach (var pair in _chunks)
 					{
 						if (count >= NumberOfChunks) break; // ABORT!
@@ -100,22 +101,22 @@ namespace MiNET.LevelDB.Console
 
 			return newOrders;
 		}
-	}
 
-	public class ChunkCoordinates
-	{
-		public ChunkCoordinates(int x, int z)
+		public class ChunkCoordinates
 		{
-			X = x;
-			Z = z;
-		}
+			public ChunkCoordinates(int x, int z)
+			{
+				X = x;
+				Z = z;
+			}
 
-		public int X { get; set; }
-		public int Z { get; set; }
+			public int X { get; set; }
+			public int Z { get; set; }
 
-		public override string ToString()
-		{
-			return $"{nameof(X)}: {X}, {nameof(Z)}: {Z}";
+			public override string ToString()
+			{
+				return $"{nameof(X)}: {X}, {nameof(Z)}: {Z}";
+			}
 		}
 	}
 }

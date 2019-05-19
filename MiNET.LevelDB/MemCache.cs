@@ -11,6 +11,7 @@ namespace MiNET.LevelDB
 		private static readonly ILog Log = LogManager.GetLogger(typeof(MemCache));
 
 		internal Dictionary<byte[], ResultCacheEntry> _resultCache;
+		private BytewiseComparator _comparator = new BytewiseComparator();
 
 		public MemCache()
 		{
@@ -78,10 +79,30 @@ namespace MiNET.LevelDB
 			return data.Slice(0, writer.Position);
 		}
 
+		public class ByteArrayComparer : IEqualityComparer<byte[]>
+		{
+			public bool Equals(byte[] left, byte[] right)
+			{
+				if (left == null || right == null)
+				{
+					return left == right;
+				}
+				return left.SequenceEqual(right);
+			}
+
+			public int GetHashCode(byte[] key)
+			{
+				if (key == null)
+					throw new ArgumentNullException("key");
+				return key.Sum(b => b);
+			}
+		}
+
 
 		internal void Load(LogReader reader)
 		{
-			_resultCache = new Dictionary<byte[], ResultCacheEntry>();
+			//_resultCache = new Dictionary<byte[], ResultCacheEntry>();
+			_resultCache = new Dictionary<byte[], ResultCacheEntry>(new ByteArrayComparer());
 
 			while (true)
 			{
@@ -100,9 +121,12 @@ namespace MiNET.LevelDB
 				var entries = DecodeBatch(record.Data);
 				foreach (var entry in entries)
 				{
-					_resultCache.TryAdd(entry.Key, entry.Value);
+					//_resultCache.TryAdd(entry.Key, entry.Value);
+					_resultCache[entry.Key] = entry.Value;
 				}
 			}
+
+			_resultCache = _resultCache.OrderByDescending(kvp => kvp.Value.Sequence).ToDictionary(k => k.Key, k => k.Value);
 		}
 
 		private List<KeyValuePair<byte[], ResultCacheEntry>> DecodeBatch(ReadOnlySpan<byte> data)
@@ -146,10 +170,9 @@ namespace MiNET.LevelDB
 		{
 			if (_resultCache == null) throw new InvalidOperationException("Log not prepared for queries. Did you forget to call Open()?");
 
-			BytewiseComparator comparator = new BytewiseComparator();
 			foreach (var entry in _resultCache.OrderByDescending(kvp => kvp.Value.Sequence))
 			{
-				if (comparator.Compare(key, entry.Key) == 0)
+				if (_comparator.Compare(key, entry.Key) == 0)
 				{
 					return new ResultStatus(entry.Value.ResultState, entry.Value.Data);
 				}
@@ -164,7 +187,7 @@ namespace MiNET.LevelDB
 
 			var seq = _resultCache.Max(kvp => kvp.Value.Sequence) + 1; // Perhaps use DateTime.Ticks
 
-			_resultCache.Add(key.ToArray(), new ResultCacheEntry {Sequence = seq, Data = value.ToArray(), ResultState = ResultState.Exist});
+			_resultCache[key.ToArray()] = new ResultCacheEntry {Sequence = seq, Data = value.ToArray(), ResultState = ResultState.Exist};
 		}
 
 		internal class ResultCacheEntry
@@ -172,6 +195,28 @@ namespace MiNET.LevelDB
 			public long Sequence { get; set; }
 			public byte[] Data { get; set; }
 			public ResultState ResultState { get; set; } = ResultState.Undefined;
+		}
+	}
+
+	internal class TestCompare : IComparer<KeyValuePair<byte[], MemCache.ResultCacheEntry>>
+	{
+		private BytewiseComparator _comparator = new BytewiseComparator();
+
+		public int Compare(KeyValuePair<byte[], MemCache.ResultCacheEntry> a, KeyValuePair<byte[], MemCache.ResultCacheEntry> b)
+		{
+			var comp = _comparator.Compare(a.Key, b.Key);
+			if (comp != 0) return comp;
+
+			var aseq = a.Value.Sequence;
+			var bseq = b.Value.Sequence;
+
+			if (aseq > bseq)
+				return -1;
+
+			if (aseq < bseq)
+				return 1;
+
+			return 0;
 		}
 	}
 }

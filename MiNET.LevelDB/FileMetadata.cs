@@ -6,5 +6,6 @@ namespace MiNET.LevelDB
 		public ulong FileSize { get; set; }
 		public byte[] SmallestKey { get; set; }
 		public byte[] LargestKey { get; set; }
+		public Table Table { get; set; }
 	}
 }

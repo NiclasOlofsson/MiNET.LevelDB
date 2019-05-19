@@ -3,10 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using log4net;
-using MiNET.LevelDB;
 using NUnit.Framework;
 
-namespace MiNET.LevelDBTests
+namespace MiNET.LevelDB.Tests
 {
 	[TestFixture]
 	public class LevelDbApiPutTests
@@ -38,16 +37,61 @@ namespace MiNET.LevelDBTests
 		[Test]
 		public void LevelDbBasicPut()
 		{
-			var db = new Database(directory);
-			db.Open();
+			byte[] value;
+			byte[] result;
+			using (var db = new Database(directory))
+			{
+				db.Open();
 
-			var value = new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-			db.Put(testKeys.First(), new Span<byte>(value));
-			db.Close();
+				value = new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+				db.Put(testKeys.First(), new Span<byte>(value));
+				db.Put(testKeys.First(), new Span<byte>(value));
+				db.Put(testKeys.First(), new Span<byte>(value));
+				db.Put(testKeys.First(), new Span<byte>(value));
+				db.Put(testKeys.First(), new Span<byte>(value));
+				db.Put(testKeys.First(), new Span<byte>(value));
+				db.Put(testKeys.First(), new Span<byte>(value));
+				db.Put(testKeys.First(), new Span<byte>(value));
+				db.Put(testKeys.First(), new Span<byte>(value));
+				db.Close();
 
-			db.Open();
-			var result = db.Get(testKeys.First());
+				db.Open();
+				result = db.Get(testKeys.First());
+			}
 			Assert.AreEqual(value, result);
+		}
+
+		[Test]
+		public void LevelDbMultiPut()
+		{
+			using (var db = new Database(directory))
+			{
+				db.Open();
+
+				Random random = new Random();
+				for (int i = 0; i < 5_000; i++)
+				{
+					byte[] key = FillArrayWithRandomBytes(random.Next(10, 16));
+					byte[] data = FillArrayWithRandomBytes(random.Next(100, 600)); // 32KB is maz size for a block, not that it matters for this
+					db.Put(key, data);
+				}
+
+				db.Close();
+
+				db.Open();
+			}
+		}
+
+		private byte[] FillArrayWithRandomBytes(int size)
+		{
+			var bytes = new byte[size];
+			var random = new Random();
+			for (int i = 0; i < bytes.Length; i++)
+			{
+				bytes[i] = (byte) random.Next(255);
+			}
+
+			return bytes;
 		}
 	}
 }
