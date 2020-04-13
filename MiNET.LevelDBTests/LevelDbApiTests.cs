@@ -146,7 +146,7 @@ namespace MiNET.LevelDB.Tests
 			int count = 0;
 			int countMissed = 0;
 			ulong totalSize = 0;
-			int numberOfChunks = 10000;
+			int numberOfChunks = 3000;//10000;
 			var chunks = GenerateChunks(new ChunkCoordinates(0, 0), 8).OrderBy(kvp => kvp.Value).ToArray();
 
 			using (var db = new Database(new DirectoryInfo("My World.mcworld")))
@@ -186,6 +186,7 @@ namespace MiNET.LevelDB.Tests
 								else
 								{
 									countMissed++;
+									Assert.Fail("All chunks exist. Should not fail. This is a bug in Table.FindBlockHandleInBlockIndex()");
 									//Log.Debug($"Missing chunk at coord={coordinates}");
 								}
 							}

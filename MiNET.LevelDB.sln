@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.27703.2035
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29806.167
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MiNET.LevelDB", "MiNET.LevelDB\MiNET.LevelDB.csproj", "{FA52BD45-E8C3-4395-A1FB-0088F73F2570}"
 EndProject
@@ -9,7 +9,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MiNET.LevelDB.Console", "Mi
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MiNET.LevelDB.Tests", "MiNET.LevelDBTests\MiNET.LevelDB.Tests.csproj", "{22661E34-057F-4555-AEC5-952F0B502AC2}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MiNET.LevelDB.Benchmarks", "MiNET.LevelDB.Benchmarks\MiNET.LevelDB.Benchmarks.csproj", "{D57F4082-74ED-4829-99E8-F6F927646CE2}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MiNET.LevelDB.Benchmarks", "MiNET.LevelDB.Benchmarks\MiNET.LevelDB.Benchmarks.csproj", "{D57F4082-74ED-4829-99E8-F6F927646CE2}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

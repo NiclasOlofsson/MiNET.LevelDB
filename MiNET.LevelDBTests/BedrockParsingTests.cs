@@ -13,7 +13,6 @@ namespace MiNET.LevelDB.Tests
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(BedrockParsingTests));
 
-
 		[Test]
 		public void LevelDbGetValueFromKey()
 		{
@@ -34,6 +33,29 @@ namespace MiNET.LevelDB.Tests
 			Assert.AreEqual(new byte[] {0x08, 0x01, 0x08, 0x00, 0x11}, result.AsSpan(0, 5).ToArray());
 
 			ParseChunk(result);
+		}
+
+		[Test]
+		public void LevelDbGetValueFromMissingKey()
+		{
+			var db = new Database(new DirectoryInfo(@"C:\Development\Other\bedrock-server-1.14.1.4\worlds\BedrockGeneratedLevel\db"));
+			db.Open();
+
+			int x = -2;
+			byte y = 0;
+			int z = -1;
+
+			Log.Warn("Looking for version");
+			var versionKey = BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] { 0x76 }).ToArray();
+			var version = db.Get(versionKey);
+			Assert.AreEqual(15, version.First());
+
+			Log.Warn("Looking for key");
+			var chunkDataKey = BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] {0x2f, y}).ToArray();
+			var result = db.Get(chunkDataKey);
+
+			Assert.NotNull(result);
+			Assert.AreEqual(new byte[] {0x08, 0x01, 0x08, 0x00, 0x11}, result.AsSpan(0, 5).ToArray());
 		}
 
 		private void ParseChunk(ReadOnlySpan<byte> data)

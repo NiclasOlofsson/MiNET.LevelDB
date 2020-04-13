@@ -130,14 +130,15 @@ namespace MiNET.LevelDB
 
 		private BlockHandle FindBlockHandleInBlockIndex(Span<byte> key)
 		{
-			_blockIndexes = _blockIndexes ?? new Dictionary<byte[], BlockHandle>();
+			_blockIndexes ??= new Dictionary<byte[], BlockHandle>();
 
 			// cache seriously important for performance
-			foreach (var blockIndex in _blockIndexes)
-			{
-				if (_comparator.Compare(blockIndex.Key.AsSpan().UserKey(), key) >= 0) return blockIndex.Value;
-			}
-
+			//TODO: This cache isn't working when values are almost same. Fails on bedrock worlds when getting version and chunks.
+			//foreach (var blockIndex in _blockIndexes)
+			//{
+			//	if (_comparator.Compare(blockIndex.Key.AsSpan().UserKey(), key) >= 0) return blockIndex.Value;
+			//}
+				
 			BlockSeeker seeker = new BlockSeeker(_blockIndex);
 			if (seeker.Seek(key))
 			{
