@@ -42,6 +42,7 @@ namespace MiNET.LevelDB.Utils
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static Span<byte> UserKey(this Span<byte> fullKey)
 		{
+			if(fullKey == null || fullKey.IsEmpty) return Span<byte>.Empty;
 			return fullKey.Slice(0, fullKey.Length - 8);
 		}
 

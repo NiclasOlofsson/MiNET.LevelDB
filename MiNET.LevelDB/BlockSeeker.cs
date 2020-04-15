@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using log4net;
 using MiNET.LevelDB.Utils;
 
 namespace MiNET.LevelDB
@@ -71,6 +72,8 @@ namespace MiNET.LevelDB
 			SeekToRestartPoint(left);
 			do
 			{
+				if(Key == null || Key.IsEmpty) return false;
+
 				if (_comparator.Compare(Key, key) >= 0)
 				{
 					return true;

@@ -160,7 +160,7 @@ namespace MiNET.LevelDB.Utils
 
 		public ReadOnlySpan<byte> Read(int length)
 		{
-			if (length > Length - Position) throw new ArgumentOutOfRangeException(nameof(length), Length - Position, $"Value outside of range: {length}");
+			if (length > Length - Position) throw new ArgumentOutOfRangeException(nameof(length), length, $"Value outside of range: {Length - Position}");
 
 			ReadOnlySpan<byte> bytes = _buffer.Slice(Position, length);
 			Position += length;
