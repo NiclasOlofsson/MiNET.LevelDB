@@ -215,10 +215,7 @@ namespace MiNET.LevelDB.Tests
 		{
 			var bytes = new byte[size];
 			var random = new Random();
-			for (int i = 0; i < bytes.Length; i++)
-			{
-				bytes[i] = (byte) random.Next(255);
-			}
+			random.NextBytes(bytes);
 
 			return bytes;
 		}

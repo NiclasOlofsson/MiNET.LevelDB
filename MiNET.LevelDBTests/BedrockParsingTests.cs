@@ -45,27 +45,27 @@ namespace MiNET.LevelDB.Tests
 			int z = 6;
 
 			Log.Warn("Looking for version");
-			var versionKey = BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] { 0x76 }).ToArray();
+			var versionKey = BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] {0x76}).ToArray();
 			var version = db.Get(versionKey);
 			Assert.AreEqual(15, version.First());
 
 			Log.Warn("Looking for key");
-			Assert.NotNull(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] { 0x2f, 0 }).ToArray()));
-			Assert.NotNull(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] { 0x2f, 1 }).ToArray()));
-			Assert.NotNull(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] { 0x2f, 2 }).ToArray()));
-			Assert.NotNull(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] { 0x2f, 3 }).ToArray()));
-			Assert.NotNull(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] { 0x2f, 4 }).ToArray()));
-			Assert.NotNull(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] { 0x2f, 5 }).ToArray()));
-			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] { 0x2f, 6 }).ToArray()));
-			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] { 0x2f, 7 }).ToArray()));
-			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] { 0x2f, 8 }).ToArray())); // Fail??
-			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] { 0x2f, 9 }).ToArray()));
-			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] { 0x2f, 10 }).ToArray()));
-			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] { 0x2f, 11 }).ToArray()));
-			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] { 0x2f, 12 }).ToArray()));
-			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] { 0x2f, 13 }).ToArray()));
-			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] { 0x2f, 14 }).ToArray()));
-			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] { 0x2f, 15 }).ToArray()));
+			Assert.NotNull(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] {0x2f, 0}).ToArray()));
+			Assert.NotNull(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] {0x2f, 1}).ToArray()));
+			Assert.NotNull(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] {0x2f, 2}).ToArray()));
+			Assert.NotNull(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] {0x2f, 3}).ToArray()));
+			Assert.NotNull(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] {0x2f, 4}).ToArray()));
+			Assert.NotNull(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] {0x2f, 5}).ToArray()));
+			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] {0x2f, 6}).ToArray()));
+			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] {0x2f, 7}).ToArray()));
+			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] {0x2f, 8}).ToArray())); // Fail??
+			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] {0x2f, 9}).ToArray()));
+			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] {0x2f, 10}).ToArray()));
+			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] {0x2f, 11}).ToArray()));
+			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] {0x2f, 12}).ToArray()));
+			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] {0x2f, 13}).ToArray()));
+			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] {0x2f, 14}).ToArray()));
+			Assert.Null(db.Get(BitConverter.GetBytes(x).Concat(BitConverter.GetBytes(z)).Concat(new byte[] {0x2f, 15}).ToArray()));
 		}
 
 		private void ParseChunk(ReadOnlySpan<byte> data)
@@ -80,10 +80,10 @@ namespace MiNET.LevelDB.Tests
 			{
 				var bitsPerBlock = reader.ReadByte() >> 1;
 				Assert.AreEqual(4, bitsPerBlock);
-				int numberOfBytes = 4096/(32/bitsPerBlock)*4;
+				int numberOfBytes = 4096 / (32 / bitsPerBlock) * 4;
 				var blockData = reader.Read(numberOfBytes);
 
-				Assert.AreEqual(4096/2, blockData.Length);
+				Assert.AreEqual(4096 / 2, blockData.Length);
 
 				int paletteSize = reader.ReadInt32();
 				Assert.AreEqual(12, paletteSize);

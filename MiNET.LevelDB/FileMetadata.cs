@@ -1,4 +1,4 @@
-namespace MiNET.LevelDB
+﻿namespace MiNET.LevelDB
 {
 	public class FileMetadata
 	{

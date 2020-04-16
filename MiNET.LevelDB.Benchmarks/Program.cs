@@ -1,7 +1,4 @@
-﻿using BenchmarkDotNet.Configs;
-using BenchmarkDotNet.Diagnostics.Windows;
-using BenchmarkDotNet.Running;
-using Microsoft.Diagnostics.Tracing.Parsers.FrameworkEventSource;
+﻿using BenchmarkDotNet.Running;
 
 namespace MiNET.LevelDB.Benchmarks
 {
@@ -13,7 +10,6 @@ namespace MiNET.LevelDB.Benchmarks
 			var summary = BenchmarkRunner.Run<LevelDbApiBenchmarks>();
 			//var summary = BenchmarkRunner.Run<LevelDbApiFileBenchmarks>();
 			//var summary = BenchmarkRunner.Run<LevelDbApiFileBenchmarks>(DefaultConfig.Instance.With(new EtwProfiler(new EtwProfilerConfig())));
-
 		}
 	}
 }

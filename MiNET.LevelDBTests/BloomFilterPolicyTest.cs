@@ -53,7 +53,7 @@ namespace MiNET.LevelDB.Tests
 
 				Build();
 
-				Assert.LessOrEqual(_filter.Length, (length*BLOOM_BITS/8) + 40);
+				Assert.LessOrEqual(_filter.Length, (length * BLOOM_BITS / 8) + 40);
 
 				// All added keys must match
 				for (uint i = 0; i < length; i++)
@@ -63,7 +63,7 @@ namespace MiNET.LevelDB.Tests
 
 				// Check false positive rate
 				double rate = FalsePositiveRate();
-				Log.Debug($"False positives: {rate*100.0}%, length={length}, bytesLength={_filter.Length}");
+				Log.Debug($"False positives: {rate * 100.0}%, length={length}, bytesLength={_filter.Length}");
 
 				Assert.LessOrEqual(rate, 0.02);
 				if (rate > 0.0125)
@@ -85,11 +85,11 @@ namespace MiNET.LevelDB.Tests
 		{
 			int h = 31;
 			int bits = 64;
-			int bitpos1 = (int) (((long) h)%bits);
-			int bitpos2 = (int) (((long) h))%bits;
-			int bitpos3 = h%bits;
+			int bitpos1 = (int) (((long) h) % bits);
+			int bitpos2 = (int) (((long) h)) % bits;
+			int bitpos3 = h % bits;
 
-			int bitpos4 = (int) ((ToLong(h))%bits);
+			int bitpos4 = (int) ((ToLong(h)) % bits);
 
 			Assert.AreEqual(bitpos1, 31);
 			Assert.AreEqual(bitpos1, bitpos2);
@@ -112,7 +112,7 @@ namespace MiNET.LevelDB.Tests
 					result++;
 				}
 			}
-			return result/10000.0;
+			return result / 10000.0;
 		}
 
 		private static int NextLength(int length)

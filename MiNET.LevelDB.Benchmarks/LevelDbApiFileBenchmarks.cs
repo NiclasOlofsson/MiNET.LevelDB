@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Diagnostics.Windows.Configs;
 using log4net;
 using log4net.Core;
 using log4net.Repository.Hierarchy;
@@ -85,7 +84,7 @@ namespace MiNET.LevelDB.Benchmarks
 			{
 				for (double z = -radius; z <= radius; ++z)
 				{
-					var distance = (x*x) + (z*z);
+					var distance = (x * x) + (z * z);
 					if (distance > radiusSquared)
 					{
 						continue;

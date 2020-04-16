@@ -1,7 +1,6 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
-using log4net;
 using MiNET.LevelDB.Utils;
 
 namespace MiNET.LevelDB
@@ -36,7 +35,7 @@ namespace MiNET.LevelDB
 			SpanReader stream = new SpanReader(_blockData);
 			stream.Seek(-4, SeekOrigin.End);
 			_restartCount = (int) stream.ReadUInt32();
-			stream.Seek(-((1 + _restartCount)*sizeof(uint)), SeekOrigin.End);
+			stream.Seek(-((1 + _restartCount) * sizeof(uint)), SeekOrigin.End);
 			_restartOffset = stream.Position;
 		}
 
@@ -55,7 +54,7 @@ namespace MiNET.LevelDB
 
 			while (left < right)
 			{
-				var mid = (left + right + 1)/2;
+				var mid = (left + right + 1) / 2;
 				SeekToRestartPoint(mid);
 				if (_comparator.Compare(Key, key) < 0)
 				{
@@ -72,7 +71,7 @@ namespace MiNET.LevelDB
 			SeekToRestartPoint(left);
 			do
 			{
-				if(Key == null || Key.IsEmpty) return false;
+				if (Key == null || Key.IsEmpty) return false;
 
 				if (_comparator.Compare(Key, key) >= 0)
 				{
@@ -104,7 +103,7 @@ namespace MiNET.LevelDB
 			if (index >= _restartCount) throw new IndexOutOfRangeException(nameof(index));
 
 			SpanReader stream = new SpanReader(_blockData);
-			stream.Seek(_restartOffset + index*sizeof(uint), SeekOrigin.Begin);
+			stream.Seek(_restartOffset + index * sizeof(uint), SeekOrigin.Begin);
 			return stream.ReadUInt32();
 		}
 

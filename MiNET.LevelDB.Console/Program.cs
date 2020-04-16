@@ -16,7 +16,7 @@ namespace MiNET.LevelDB.Console
 
 		static void Main(string[] args)
 		{
-			Hierarchy hierarchy = (Hierarchy)LogManager.GetRepository(Assembly.GetEntryAssembly());
+			Hierarchy hierarchy = (Hierarchy) LogManager.GetRepository(Assembly.GetEntryAssembly());
 			hierarchy.Root.Level = Level.Error;
 
 			var program = new Program();
@@ -86,7 +86,7 @@ namespace MiNET.LevelDB.Console
 			{
 				for (double z = -radius; z <= radius; ++z)
 				{
-					var distance = (x*x) + (z*z);
+					var distance = (x * x) + (z * z);
 					if (distance > radiusSquared)
 					{
 						continue;

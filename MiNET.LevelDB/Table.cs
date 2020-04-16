@@ -138,7 +138,7 @@ namespace MiNET.LevelDB
 			//{
 			//	if (_comparator.Compare(blockIndex.Key.AsSpan().UserKey(), key) >= 0) return blockIndex.Value;
 			//}
-				
+
 			BlockSeeker seeker = new BlockSeeker(_blockIndex);
 			if (seeker.Seek(key))
 			{
@@ -201,7 +201,7 @@ namespace MiNET.LevelDB
 
 			stream.Seek(-4, SeekOrigin.End);
 			uint count = stream.ReadUInt32();
-			stream.Position = (int) ((1 + count)*4);
+			stream.Position = (int) ((1 + count) * 4);
 			for (int i = 0; i < count; i++)
 			{
 				result.Add(stream.ReadUInt32());
@@ -216,7 +216,7 @@ namespace MiNET.LevelDB
 			reader.Seek(-4, SeekOrigin.End);
 			int count = reader.ReadInt32();
 			reader.Position = currentPosition;
-			return (1 + count)*4;
+			return (1 + count) * 4;
 		}
 
 		public void Dispose()

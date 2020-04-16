@@ -87,7 +87,7 @@ namespace MiNET.LevelDB.Benchmarks
 			{
 				for (double z = -radius; z <= radius; ++z)
 				{
-					var distance = (x*x) + (z*z);
+					var distance = (x * x) + (z * z);
 					if (distance > radiusSquared)
 					{
 						continue;

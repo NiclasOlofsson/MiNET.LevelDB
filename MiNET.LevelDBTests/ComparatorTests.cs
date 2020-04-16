@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using MiNET.LevelDB.Utils;
 using NUnit.Framework;
 

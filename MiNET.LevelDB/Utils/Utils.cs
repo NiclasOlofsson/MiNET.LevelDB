@@ -12,7 +12,7 @@ namespace MiNET.LevelDB.Utils
 			StringBuilder sb = new StringBuilder();
 			for (int line = 0; line < bytes.Length; line += bytesPerLine)
 			{
-				if (cutAfterFive && line >= bytesPerLine*5)
+				if (cutAfterFive && line >= bytesPerLine * 5)
 				{
 					sb.AppendLine(".. output cut after 5 lines");
 					break;
@@ -22,7 +22,7 @@ namespace MiNET.LevelDB.Utils
 				if (printLineCount) sb.AppendFormat("{0:x8} ", line);
 				sb.Append(string.Join(" ", lineBytes.Select(b => b.ToString("x2"))
 						.ToArray())
-					.PadRight(bytesPerLine*3));
+					.PadRight(bytesPerLine * 3));
 				if (printText)
 				{
 					sb.Append(" ");
@@ -42,7 +42,7 @@ namespace MiNET.LevelDB.Utils
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static Span<byte> UserKey(this Span<byte> fullKey)
 		{
-			if(fullKey == null || fullKey.IsEmpty) return Span<byte>.Empty;
+			if (fullKey == null || fullKey.IsEmpty) return Span<byte>.Empty;
 			return fullKey.Slice(0, fullKey.Length - 8);
 		}
 
@@ -96,7 +96,7 @@ namespace MiNET.LevelDB.Utils
 				{
 					for (int index3 = 0; index3 < 8; ++index3)
 						num = ((int) num & 1) == 1 ? Poly ^ num >> 1 : num >> 1;
-					Table[index2*256 + index1] = num;
+					Table[index2 * 256 + index1] = num;
 				}
 			}
 		}

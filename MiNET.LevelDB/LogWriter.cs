@@ -49,7 +49,7 @@ namespace MiNET.LevelDB
 
 			while (!reader.Eof)
 			{
-				int sizeLeft = (int) (BlockSize - stream.Position%BlockSize);
+				int sizeLeft = (int) (BlockSize - stream.Position % BlockSize);
 				int bytesLeft = reader.Length - reader.Position;
 				int length = 0;
 

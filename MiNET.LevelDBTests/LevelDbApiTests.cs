@@ -1,13 +1,9 @@
-
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using log4net;
-using log4net.Core;
-using log4net.Repository.Hierarchy;
 using MiNET.LevelDB.Utils;
 using NUnit.Framework;
 
@@ -32,13 +28,9 @@ namespace MiNET.LevelDB.Tests
 		{
 			new byte[] {0xf6, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x2f, 0x00,},
 			new byte[] {0xf7, 0xff, 0xff, 0xff, 0x01, 0x00, 0x00, 0x00, 0x2f, 0x00,},
-
 			new byte[] {0xf7, 0xff, 0xff, 0xff, 0xf1, 0xff, 0xff, 0xff, 0x76,},
-
 			new byte[] {0xf7, 0xff, 0xff, 0xff, 0xfd, 0xff, 0xff, 0xff, 0x2f, 0x05,},
-
 			new byte[] {0xfa, 0xff, 0xff, 0xff, 0xe7, 0xff, 0xff, 0xff, 0x2f, 0x02,},
-
 			new byte[] {0xfa, 0xff, 0xff, 0xff, 0xe7, 0xff, 0xff, 0xff, 0x2f, 0x03,},
 		};
 
@@ -89,7 +81,7 @@ namespace MiNET.LevelDB.Tests
 
 				sw = new Stopwatch();
 				sw.Restart();
-				for (int i = 0; i < 100*16/6; i++)
+				for (int i = 0; i < 100 * 16 / 6; i++)
 				{
 					foreach (var testKey in testKeys)
 					{
@@ -146,7 +138,7 @@ namespace MiNET.LevelDB.Tests
 			int count = 0;
 			int countMissed = 0;
 			ulong totalSize = 0;
-			int numberOfChunks = 3000;//10000;
+			int numberOfChunks = 3000; //10000;
 			var chunks = GenerateChunks(new ChunkCoordinates(0, 0), 8).OrderBy(kvp => kvp.Value).ToArray();
 
 			using (var db = new Database(new DirectoryInfo("My World.mcworld")))
@@ -207,7 +199,7 @@ namespace MiNET.LevelDB.Tests
 
 				var time = sw.ElapsedMilliseconds;
 				Log.Info($"Fetch {count} chunk columns in {time}ms");
-				Console.WriteLine($"Fetch {count} chunk columns in {time}ms. Total size={totalSize/1000000}MB. Missing={countMissed}");
+				Console.WriteLine($"Fetch {count} chunk columns in {time}ms. Total size={totalSize / 1000000}MB. Missing={countMissed}");
 			}
 		}
 
@@ -224,7 +216,7 @@ namespace MiNET.LevelDB.Tests
 			{
 				for (double z = -radius; z <= radius; ++z)
 				{
-					var distance = (x*x) + (z*z);
+					var distance = (x * x) + (z * z);
 					if (distance > radiusSquared)
 					{
 						continue;

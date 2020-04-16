@@ -34,7 +34,7 @@ namespace MiNET.LevelDB
 
 			long maxSize = 0;
 			maxSize += 8; // sequence
-			maxSize += 4*operations.Length; // count
+			maxSize += 4 * operations.Length; // count
 			foreach (var entry in operations)
 			{
 				maxSize += 1; // op code
@@ -150,12 +150,21 @@ namespace MiNET.LevelDB
 					ulong valueLength = batchReader.ReadVarLong();
 
 					var currentVal = batchReader.Read(valueLength);
-					result.Add(new KeyValuePair<byte[], ResultCacheEntry>(currentKey.ToArray(), new ResultCacheEntry {Sequence = sequenceNumber, ResultState = ResultState.Exist, Data = currentVal.ToArray()}));
+					result.Add(new KeyValuePair<byte[], ResultCacheEntry>(currentKey.ToArray(), new ResultCacheEntry
+					{
+						Sequence = sequenceNumber,
+						ResultState = ResultState.Exist,
+						Data = currentVal.ToArray()
+					}));
 				}
 				else if (operationCode == (int) OperationType.Delete) // Delete
 				{
 					// says return "not found" in this case. Need to investigate since I believe there can multiple records with same key in this case.
-					result.Add(new KeyValuePair<byte[], ResultCacheEntry>(currentKey.ToArray(), new ResultCacheEntry {Sequence = sequenceNumber, ResultState = ResultState.Deleted}));
+					result.Add(new KeyValuePair<byte[], ResultCacheEntry>(currentKey.ToArray(), new ResultCacheEntry
+					{
+						Sequence = sequenceNumber,
+						ResultState = ResultState.Deleted
+					}));
 				}
 				else
 				{
@@ -187,7 +196,12 @@ namespace MiNET.LevelDB
 
 			var seq = _resultCache.Max(kvp => kvp.Value.Sequence) + 1; // Perhaps use DateTime.Ticks
 
-			_resultCache[key.ToArray()] = new ResultCacheEntry {Sequence = seq, Data = value.ToArray(), ResultState = ResultState.Exist};
+			_resultCache[key.ToArray()] = new ResultCacheEntry
+			{
+				Sequence = seq,
+				Data = value.ToArray(),
+				ResultState = ResultState.Exist
+			};
 		}
 
 		internal class ResultCacheEntry

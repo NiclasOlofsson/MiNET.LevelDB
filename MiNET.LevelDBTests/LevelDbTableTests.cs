@@ -1,6 +1,5 @@
 using System.IO;
 using log4net;
-using MiNET.LevelDB;
 using MiNET.LevelDB.Utils;
 using NUnit.Framework;
 
@@ -11,12 +10,7 @@ namespace MiNET.LevelDB.Tests
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(LevelDbTableTests));
 
-		byte[] _indicatorChars =
-		{
-			0x64, 0x69, 0x6d, 0x65,
-			0x6e, 0x73, 0x6f,
-			0x6e, 0x30
-		};
+		byte[] _indicatorChars = {0x64, 0x69, 0x6d, 0x65, 0x6e, 0x73, 0x6f, 0x6e, 0x30};
 
 		[Test]
 		public void LevelDbReadFindInTableTest()
@@ -25,7 +19,7 @@ namespace MiNET.LevelDB.Tests
 			ResultStatus result;
 			using (Table table = new Table(fileInfo))
 			{
-				result = table.Get(new byte[] { 0xf6, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x2f, 0x00, });
+				result = table.Get(new byte[] {0xf6, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x2f, 0x00,});
 			}
 
 			if (result.Data != null)

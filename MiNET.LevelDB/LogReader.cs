@@ -116,7 +116,7 @@ namespace MiNET.LevelDB
 		private Record ReadFragments(Stream stream)
 		{
 			// Blocks may be padded if size left is less than the header
-			int sizeLeft = (int) (BlockSize - stream.Position%BlockSize);
+			int sizeLeft = (int) (BlockSize - stream.Position % BlockSize);
 			if (sizeLeft < 7) stream.Seek(sizeLeft, SeekOrigin.Current);
 
 			// Header is checksum (4 bytes), length (2 bytes), type (1 byte).
@@ -204,7 +204,7 @@ namespace MiNET.LevelDB
 		public override string ToString()
 		{
 			return $"{nameof(LogRecordType)}: {LogRecordType}, {nameof(Length)}: {Length}, {nameof(Checksum)}: {Checksum}, "
-					+ $"{nameof(Data)}:\n{Data.HexDump(cutAfterFive: Data.Length > 16*10)}"
+					+ $"{nameof(Data)}:\n{Data.HexDump(cutAfterFive: Data.Length > 16 * 10)}"
 				;
 		}
 	}

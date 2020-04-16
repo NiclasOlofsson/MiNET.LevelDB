@@ -9,7 +9,7 @@ namespace MiNET.LevelDB
 
 		public static uint Hash(Span<byte> data, uint seed)
 		{
-			uint h = seed ^ ((uint) data.Length*M);
+			uint h = seed ^ ((uint) data.Length * M);
 			int idx = 0;
 
 			// Do four bytes at a time
