@@ -27,6 +27,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using log4net;
 using MiNET.LevelDB.Utils;
 using Newtonsoft.Json;
@@ -47,7 +48,7 @@ namespace MiNET.LevelDB
 		private readonly DirectoryInfo _baseDirectory;
 		private BytewiseComparator _comparator = new BytewiseComparator();
 
-		public VersionEdit CurrentVersion { get; private set; }
+		public VersionEdit CurrentVersion { get; internal set; }
 
 		public Manifest(DirectoryInfo baseDirectory)
 		{
@@ -77,6 +78,14 @@ namespace MiNET.LevelDB
 					}
 				}
 			}
+		}
+
+		public void Save(LogWriter writer)
+		{
+			if (CurrentVersion == null) return;
+
+			var bytes = WriteVersion(CurrentVersion);
+			writer.EncodeBlocks(bytes);
 		}
 
 		public ResultStatus Get(Span<byte> key)
@@ -114,7 +123,7 @@ namespace MiNET.LevelDB
 			return ResultStatus.NotFound;
 		}
 
-		public VersionEdit ReadVersionEdit(LogReader logReader)
+		public static VersionEdit ReadVersionEdit(LogReader logReader)
 		{
 			string comparator = null;
 			ulong? logNumber = null;
@@ -243,6 +252,93 @@ namespace MiNET.LevelDB
 			return finalVersion;
 		}
 
+		public static Span<byte> WriteVersion(VersionEdit version)
+		{
+			var array = new byte[4096];
+			var buffer = new Span<byte>(array);
+			var writer = new SpanWriter(buffer);
+
+			//	case Manifest.LogTagType.Comparator:
+			if (!string.IsNullOrEmpty(version.Comparator))
+			{
+				writer.WriteVarInt((ulong) LogTagType.Comparator);
+				writer.Write(version.Comparator);
+			}
+			//	case Manifest.LogTagType.LogNumber:
+			if (version.LogNumber.HasValue)
+			{
+				writer.WriteVarInt((ulong) LogTagType.LogNumber);
+				writer.WriteVarInt((ulong) version.LogNumber);
+			}
+			//	case Manifest.LogTagType.PrevLogNumber:
+			if (version.PreviousLogNumber.HasValue)
+			{
+				writer.WriteVarInt((ulong) LogTagType.PrevLogNumber);
+				writer.WriteVarInt((ulong) version.PreviousLogNumber);
+			}
+			//	case Manifest.LogTagType.NextFileNumber:
+			if (version.NextFileNumber.HasValue)
+			{
+				writer.WriteVarInt((ulong) LogTagType.NextFileNumber);
+				writer.WriteVarInt((ulong) version.NextFileNumber);
+			}
+			//	case Manifest.LogTagType.LastSequence:
+			if (version.LastSequenceNumber.HasValue)
+			{
+				writer.WriteVarInt((ulong) LogTagType.LastSequence);
+				writer.WriteVarInt((ulong) version.LastSequenceNumber);
+			}
+			//	case Manifest.LogTagType.CompactPointer:
+			if (version.CompactPointers.Count > 0)
+			{
+				foreach (KeyValuePair<int, byte[]> pointer in version.CompactPointers)
+				{
+					writer.WriteVarInt((ulong) LogTagType.CompactPointer);
+					writer.WriteVarInt((ulong) pointer.Key);
+					writer.WriteWithLen(pointer.Value);
+				}
+			}
+			//	case Manifest.LogTagType.DeletedFile:
+			if (version.DeletedFiles.Count > 0)
+			{
+				foreach (KeyValuePair<int, List<ulong>> files in version.DeletedFiles)
+				{
+					foreach (ulong fileNumber in files.Value)
+					{
+						writer.WriteVarInt((ulong) LogTagType.DeletedFile);
+						writer.WriteVarInt((ulong) files.Key);
+						writer.WriteVarInt(fileNumber);
+					}
+				}
+			}
+			//	case Manifest.LogTagType.NewFile:
+			if (version.NewFiles.Count > 0)
+			{
+				foreach (KeyValuePair<int, List<FileMetadata>> files in version.NewFiles)
+				{
+					int level = files.Key;
+					foreach (FileMetadata fileMeta in files.Value)
+					{
+						writer.WriteVarInt((ulong) LogTagType.NewFile);
+						//int level = (int) reader.ReadVarLong();
+						writer.WriteVarInt((ulong) level);
+						//ulong fileNumber = reader.ReadVarLong();
+						writer.WriteVarInt((ulong) fileMeta.FileNumber);
+						//ulong fileSize = reader.ReadVarLong();
+						writer.WriteVarInt((ulong) fileMeta.FileSize);
+						//var smallest = reader.ReadLengthPrefixedBytes();
+						writer.WriteWithLen(fileMeta.SmallestKey);
+						//var largest = reader.ReadLengthPrefixedBytes();
+						writer.WriteWithLen(fileMeta.LargestKey);
+					}
+				}
+			}
+
+			int length = writer.Position;
+			return buffer.Slice(0, length).ToArray();
+		}
+
+
 		public static void Print(object obj)
 		{
 			if (!Log.IsDebugEnabled) return;
@@ -296,7 +392,7 @@ namespace MiNET.LevelDB
 		{
 		}
 
-		private enum LogTagType
+		public enum LogTagType
 		{
 			Comparator = 1,
 			LogNumber = 2,
@@ -314,7 +410,7 @@ namespace MiNET.LevelDB
 		{
 			var tableFiles = CurrentVersion.NewFiles;
 			CurrentVersion = null;
-			foreach (var level in tableFiles) // Search all levels for file with matching index
+			foreach (KeyValuePair<int, List<FileMetadata>> level in tableFiles) // Search all levels for file with matching index
 			{
 				foreach (FileMetadata tbl in level.Value)
 				{

@@ -101,7 +101,6 @@ namespace MiNET.LevelDB
 
 		internal void Load(LogReader reader)
 		{
-			//_resultCache = new Dictionary<byte[], ResultCacheEntry>();
 			_resultCache = new Dictionary<byte[], ResultCacheEntry>(new ByteArrayComparer());
 
 			while (true)
@@ -119,9 +118,8 @@ namespace MiNET.LevelDB
 				if (record.Length != (ulong) record.Data.Length) throw new Exception($"Invalid record state. Length not matching");
 
 				var entries = DecodeBatch(record.Data);
-				foreach (var entry in entries)
+				foreach (KeyValuePair<byte[], ResultCacheEntry> entry in entries)
 				{
-					//_resultCache.TryAdd(entry.Key, entry.Value);
 					_resultCache[entry.Key] = entry.Value;
 				}
 			}

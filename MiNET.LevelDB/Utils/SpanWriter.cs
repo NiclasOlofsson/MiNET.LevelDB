@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Text;
 
 namespace MiNET.LevelDB.Utils
 {
@@ -108,15 +109,38 @@ namespace MiNET.LevelDB.Utils
 			_buffer[Position++] = (byte) (value >> 56);
 		}
 
+		public void Write(string value)
+		{
+			WriteVarInt((ulong) value.Length);
+			Write(Encoding.UTF8.GetBytes(value));
+		}
+
+		public void WriteWithLen(Span<byte> value)
+		{
+			WriteVarInt((ulong) value.Length);
+			Write(value);
+		}
+
 		public void WriteVarInt(ulong value)
 		{
-			var num = value;
-			while (num >= 0x80U)
+			while ((value & 0xFFFFFFFFFFFFFF80) != 0)
 			{
-				_buffer[Position++] = ((byte) (num | 0x80U));
-				num >>= 7;
+				_buffer[Position++] = ((byte) ((value & 0x7F) | 0x80));
+				value >>= 7;
 			}
-			_buffer[Position++] = (byte) num;
+
+			_buffer[Position++] = ((byte) value);
 		}
+
+		//public void WriteVarInt(ulong value)
+		//{
+		//	var num = value;
+		//	while (num >= 0x80U)
+		//	{
+		//		_buffer[Position++] = ((byte) (num | 0x80U));
+		//		num >>= 7;
+		//	}
+		//	_buffer[Position++] = (byte) num;
+		//}
 	}
 }

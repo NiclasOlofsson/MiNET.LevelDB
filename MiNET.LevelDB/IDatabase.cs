@@ -119,19 +119,23 @@ namespace MiNET.LevelDB
 
 				// Create new MANIFEST
 
-				VersionEdit newVersion = new VersionEdit();
-				newVersion.NextFileNumber = 1;
-				newVersion.Comparator = "leveldb.BytewiseComparator";
+				var manifest = new Manifest(Directory);
+				manifest.CurrentVersion = new VersionEdit()
+				{
+					Comparator = "leveldb.BytewiseComparator",
+					LogNumber = 1,
+				};
+				string filename = $"MANIFEST-000001";
+				using var writer = new LogWriter(new FileInfo($@"{Path.Combine(Directory.FullName, filename)}"));
+				manifest.Save(writer);
+				manifest.Close();
 
 				// Create new CURRENT text file and store manifest filename in it
-				using (var manifestStream = File.CreateText($@"{Path.Combine(Directory.FullName, "CURRENT")}"))
-				{
-					manifestStream.WriteLine($"MANIFEST-{newVersion.NextFileNumber++:000000}");
-					manifestStream.Close();
-				}
+				using StreamWriter current = File.CreateText($@"{Path.Combine(Directory.FullName, "CURRENT")}");
+				current.WriteLine(filename);
+				current.Close();
 
-
-				// Done
+				// Done and created
 			}
 
 			Directory.Refresh(); // If this has been manipulated on the way, this is really needed.
@@ -153,15 +157,8 @@ namespace MiNET.LevelDB
 			}
 
 			// Read current log
-			//TODO: remove unit-test-stuff
-			string logFileName = Path.Combine(Directory.FullName, $"{_manifest.CurrentVersion.LogNumber + 1:000000}.log");
-			var f = new FileInfo(logFileName);
-			if (!f.Exists)
-			{
-				f = new FileInfo(Path.Combine(Directory.FullName, $"{_manifest.CurrentVersion.LogNumber:000000}.log"));
-			}
-
-			using (var reader = new LogReader(f))
+			var logFile = new FileInfo(Path.Combine(Directory.FullName, $"{_manifest.CurrentVersion.LogNumber:000000}.log"));
+			using (var reader = new LogReader(logFile))
 			{
 				_newMemCache = new MemCache();
 				_newMemCache.Load(reader);
@@ -177,11 +174,9 @@ namespace MiNET.LevelDB
 
 				if (_manifest != null)
 				{
-					var nextLogNumber = (_manifest.CurrentVersion.LogNumber ?? 0) + 1;
-					using (var logWriter = new LogWriter(new FileInfo(Path.Combine(Directory.FullName, $"{nextLogNumber:000000}.log"))))
-					{
-						memCache.Write(logWriter);
-					}
+					//TODO: Save of log should happen continuous (async) when doing Put() operations.
+					using var logWriter = new LogWriter(new FileInfo(Path.Combine(Directory.FullName, $"{(_manifest.CurrentVersion.LogNumber ?? 0):000000}.log")));
+					memCache.Write(logWriter);
 				}
 			}
 
