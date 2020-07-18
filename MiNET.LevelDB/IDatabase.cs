@@ -177,7 +177,7 @@ namespace MiNET.LevelDB
 
 				if (_manifest != null)
 				{
-					var nextLogNumber = _manifest.CurrentVersion.LogNumber + 1;
+					var nextLogNumber = (_manifest.CurrentVersion.LogNumber ?? 0) + 1;
 					using (var logWriter = new LogWriter(new FileInfo(Path.Combine(Directory.FullName, $"{nextLogNumber:000000}.log"))))
 					{
 						memCache.Write(logWriter);
