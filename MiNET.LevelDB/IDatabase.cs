@@ -139,7 +139,7 @@ namespace MiNET.LevelDB
 			// Read Manifest into memory
 
 			string manifestFilename;
-			using (var currentStream = File.OpenText($@"{Path.Combine(Directory.FullName, "CURRENT")}"))
+			using (StreamReader currentStream = File.OpenText($@"{Path.Combine(Directory.FullName, "CURRENT")}"))
 			{
 				manifestFilename = currentStream.ReadLine();
 				currentStream.Close();
@@ -154,8 +154,8 @@ namespace MiNET.LevelDB
 
 			// Read current log
 			//TODO: remove unit-test-stuff
-			var logFileName = Path.Combine(Directory.FullName, $"{_manifest.CurrentVersion.LogNumber + 1:000000}.log");
-			FileInfo f = new FileInfo(logFileName);
+			string logFileName = Path.Combine(Directory.FullName, $"{_manifest.CurrentVersion.LogNumber + 1:000000}.log");
+			var f = new FileInfo(logFileName);
 			if (!f.Exists)
 			{
 				f = new FileInfo(Path.Combine(Directory.FullName, $"{_manifest.CurrentVersion.LogNumber:000000}.log"));
