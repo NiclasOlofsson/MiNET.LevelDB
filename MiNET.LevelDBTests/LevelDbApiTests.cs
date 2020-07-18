@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -47,13 +47,27 @@ namespace MiNET.LevelDB.Tests
 		public void LevelDbCreateFromDirectory()
 		{
 			DirectoryInfo tempDir = new DirectoryInfo(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
-
+			Log.Debug($"Created new DB in {tempDir}");
 			using (var db = new Database(tempDir))
 			{
 				db.CreateIfMissing = true;
 				db.Open();
+
+				byte[] key = testKeys.Last();
+				db.Put(key, new byte[] {0, 1, 2, 3});
+				
+				byte[] result = db.Get(key);
+				db.Close();
 			}
-			//var result = db.Get(testKeys.Last());
+
+			using (var db = new Database(tempDir))
+			{
+				db.Open();
+
+				byte[] key = testKeys.Last();
+				byte[] result = db.Get(key);
+			}
+
 		}
 
 		[Test]

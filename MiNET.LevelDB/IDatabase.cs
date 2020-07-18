@@ -107,9 +107,15 @@ namespace MiNET.LevelDB
 			// Verify that directory exists
 			if (!Directory.Exists)
 			{
-				if (!CreateIfMissing) throw new DirectoryNotFoundException(Directory.Name);
+				if (!CreateIfMissing)
+				{
+					var notFoundException = new DirectoryNotFoundException(Directory.FullName);
+					Log.Error(notFoundException);
+					throw notFoundException;
+				}
 
 				Directory.Create();
+				Directory.Refresh();
 
 				// Create new MANIFEST
 
@@ -127,6 +133,8 @@ namespace MiNET.LevelDB
 
 				// Done
 			}
+
+			Directory.Refresh(); // If this has been manipulated on the way, this is really needed.
 
 			// Read Manifest into memory
 

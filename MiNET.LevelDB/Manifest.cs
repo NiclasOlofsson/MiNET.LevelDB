@@ -209,7 +209,7 @@ namespace MiNET.LevelDB
 			}
 			finalVersion.NewFiles = finalVersion.NewFiles.OrderBy(kvp => kvp.Key).ToDictionary(pair => pair.Key, pair => pair.Value);
 
-			finalVersion.Comparator = comparator;
+			finalVersion.Comparator = comparator ?? "leveldb.BytewiseComparator";
 			finalVersion.LogNumber = logNumber;
 			finalVersion.PreviousLogNumber = previousLogNumber;
 			finalVersion.NextFileNumber = nextFileNumber;

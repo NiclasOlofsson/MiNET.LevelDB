@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using log4net;
@@ -194,7 +194,7 @@ namespace MiNET.LevelDB
 		{
 			if (_resultCache == null) throw new InvalidOperationException("Log not prepared for updates. Did you forget to call Open()?");
 
-			var seq = _resultCache.Max(kvp => kvp.Value.Sequence) + 1; // Perhaps use DateTime.Ticks
+			var seq = _resultCache.Count == 0 ? 0 : _resultCache.Max(kvp => kvp.Value.Sequence) + 1; // Perhaps use DateTime.Ticks
 
 			_resultCache[key.ToArray()] = new ResultCacheEntry
 			{
