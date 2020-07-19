@@ -11,10 +11,10 @@
 
 	<ItemGroup>
 		<PackageReference Include="log4net" Version="2.0.8" />
-		<PackageReference Include="MiNET.fnbt" Version="1.0.17" />
+		<PackageReference Include="MiNET.fnbt" Version="1.0.22" />
 		<PackageReference Include="NUnit" Version="3.12.0" />
-		<PackageReference Include="NUnit3TestAdapter" Version="3.13.0" />
-		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="16.1.0" />
+		<PackageReference Include="NUnit3TestAdapter" Version="4.0.0-alpha.1" />
+		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="16.7.0-preview-20200519-01" />
 	</ItemGroup>
 
 	<ItemGroup>
