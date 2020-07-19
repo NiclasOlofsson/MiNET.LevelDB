@@ -7,7 +7,7 @@ namespace MiNET.LevelDB
 		public string Comparator { get; set; }
 		public ulong? LogNumber { get; set; }
 		public ulong? PreviousLogNumber { get; set; }
-		public ulong? NextFileNumber { get; set; }
+		public ulong? NextFileNumber { get; set; } // Global file number counter. For all files it seems
 		public ulong? LastSequenceNumber { get; set; }
 		public Dictionary<int, byte[]> CompactPointers { get; set; } = new Dictionary<int, byte[]>();
 		public Dictionary<int, List<ulong>> DeletedFiles { get; set; } = new Dictionary<int, List<ulong>>();

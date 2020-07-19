@@ -124,6 +124,9 @@ namespace MiNET.LevelDB
 				{
 					Comparator = "leveldb.BytewiseComparator",
 					LogNumber = 1,
+					PreviousLogNumber = 0,
+					NextFileNumber = 2,
+					LastSequenceNumber = 0
 				};
 				string filename = $"MANIFEST-000001";
 				using var writer = new LogWriter(new FileInfo($@"{Path.Combine(Directory.FullName, filename)}"));
