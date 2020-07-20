@@ -1,6 +1,30 @@
-﻿using System;
+﻿#region LICENSE
+
+// The contents of this file are subject to the Common Public Attribution
+// License Version 1.0. (the "License"); you may not use this file except in
+// compliance with the License. You may obtain a copy of the License at
+// https://github.com/NiclasOlofsson/MiNET/blob/master/LICENSE.
+// The License is based on the Mozilla Public License Version 1.1, but Sections 14
+// and 15 have been added to cover use of software over a computer network and
+// provide for limited attribution for the Original Developer. In addition, Exhibit A has
+// been modified to be consistent with Exhibit B.
+// 
+// Software distributed under the License is distributed on an "AS IS" basis,
+// WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License for
+// the specific language governing rights and limitations under the License.
+// 
+// The Original Code is MiNET.
+// 
+// The Original Developer is the Initial Developer.  The Initial Developer of
+// the Original Code is Niclas Olofsson.
+// 
+// All portions of the code written by Niclas Olofsson are Copyright (c) 2014-2020 Niclas Olofsson.
+// All Rights Reserved.
+
+#endregion
+
+using System;
 using System.IO;
-using System.IO.MemoryMappedFiles;
 using MiNET.LevelDB.Utils;
 
 namespace MiNET.LevelDB
@@ -12,16 +36,16 @@ namespace MiNET.LevelDB
 		public const int FooterLength = 48; // (10 + 10) * 2 + 8
 
 
-		public BlockHandle MetaindexBlockHandle { get; }
+		public BlockHandle MetaIndexBlockHandle { get; }
 		public BlockHandle BlockIndexBlockHandle { get; }
 
 		public Footer()
 		{
 		}
 
-		public Footer(BlockHandle metaindexBlockHandle, BlockHandle blockIndexBlockHandle)
+		public Footer(BlockHandle metaIndexBlockHandle, BlockHandle blockIndexBlockHandle)
 		{
-			MetaindexBlockHandle = metaindexBlockHandle;
+			MetaIndexBlockHandle = metaIndexBlockHandle;
 			BlockIndexBlockHandle = blockIndexBlockHandle;
 		}
 
@@ -32,16 +56,16 @@ namespace MiNET.LevelDB
 		///     within the table file. leveldb performs a binary search of the block index to locate a candidate data block. It
 		///     reads the candidate data block from the table file.
 		/// </summary>
-		public static Footer Read(MemoryMappedViewStream stream)
+		public static Footer Read(Stream stream)
 		{
 			stream.Seek(-FooterLength, SeekOrigin.End);
 			Span<byte> footer = new byte[FooterLength];
 			stream.Read(footer);
 
-			SpanReader reader = new SpanReader(footer);
+			var reader = new SpanReader(footer);
 
-			BlockHandle metaIndexHandle = BlockHandle.ReadBlockHandle(ref reader);
-			BlockHandle indexHandle = BlockHandle.ReadBlockHandle(ref reader);
+			var metaIndexHandle = BlockHandle.ReadBlockHandle(ref reader);
+			var indexHandle = BlockHandle.ReadBlockHandle(ref reader);
 
 			reader.Seek(-sizeof(ulong), SeekOrigin.End);
 			var magic = reader.ReadUInt64();
@@ -51,6 +75,17 @@ namespace MiNET.LevelDB
 			}
 
 			return new Footer(metaIndexHandle, indexHandle);
+		}
+
+		public void Write(Stream stream)
+		{
+			long pos = stream.Position;
+			stream.Write(MetaIndexBlockHandle.Encode());
+			stream.Write(BlockIndexBlockHandle.Encode());
+			long paddingLen = FooterLength - 8 - (stream.Position - pos);
+			stream.Write(new byte[paddingLen]); // padding
+			stream.Write(BitConverter.GetBytes(Magic));
+			//if (stream.Position - pos > FooterLength) throw new Exception($"Footer exceeded allowed size by {FooterLength - (stream.Position - pos)}. Padded with {paddingLen}");
 		}
 	}
 }

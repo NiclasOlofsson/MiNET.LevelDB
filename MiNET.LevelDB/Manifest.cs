@@ -261,40 +261,40 @@ namespace MiNET.LevelDB
 			//	case Manifest.LogTagType.Comparator:
 			if (!string.IsNullOrEmpty(version.Comparator))
 			{
-				writer.WriteVarInt((ulong) LogTagType.Comparator);
+				writer.WriteVarLong((ulong) LogTagType.Comparator);
 				writer.Write(version.Comparator);
 			}
 			//	case Manifest.LogTagType.LogNumber:
 			if (version.LogNumber.HasValue)
 			{
-				writer.WriteVarInt((ulong) LogTagType.LogNumber);
-				writer.WriteVarInt((ulong) version.LogNumber);
+				writer.WriteVarLong((ulong) LogTagType.LogNumber);
+				writer.WriteVarLong((ulong) version.LogNumber);
 			}
 			//	case Manifest.LogTagType.PrevLogNumber:
 			if (version.PreviousLogNumber.HasValue)
 			{
-				writer.WriteVarInt((ulong) LogTagType.PrevLogNumber);
-				writer.WriteVarInt((ulong) version.PreviousLogNumber);
+				writer.WriteVarLong((ulong) LogTagType.PrevLogNumber);
+				writer.WriteVarLong((ulong) version.PreviousLogNumber);
 			}
 			//	case Manifest.LogTagType.NextFileNumber:
 			if (version.NextFileNumber.HasValue)
 			{
-				writer.WriteVarInt((ulong) LogTagType.NextFileNumber);
-				writer.WriteVarInt((ulong) version.NextFileNumber);
+				writer.WriteVarLong((ulong) LogTagType.NextFileNumber);
+				writer.WriteVarLong((ulong) version.NextFileNumber);
 			}
 			//	case Manifest.LogTagType.LastSequence:
 			if (version.LastSequenceNumber.HasValue)
 			{
-				writer.WriteVarInt((ulong) LogTagType.LastSequence);
-				writer.WriteVarInt((ulong) version.LastSequenceNumber);
+				writer.WriteVarLong((ulong) LogTagType.LastSequence);
+				writer.WriteVarLong((ulong) version.LastSequenceNumber);
 			}
 			//	case Manifest.LogTagType.CompactPointer:
 			if (version.CompactPointers.Count > 0)
 			{
 				foreach (KeyValuePair<int, byte[]> pointer in version.CompactPointers)
 				{
-					writer.WriteVarInt((ulong) LogTagType.CompactPointer);
-					writer.WriteVarInt((ulong) pointer.Key);
+					writer.WriteVarLong((ulong) LogTagType.CompactPointer);
+					writer.WriteVarLong((ulong) pointer.Key);
 					writer.WriteWithLen(pointer.Value);
 				}
 			}
@@ -305,9 +305,9 @@ namespace MiNET.LevelDB
 				{
 					foreach (ulong fileNumber in files.Value)
 					{
-						writer.WriteVarInt((ulong) LogTagType.DeletedFile);
-						writer.WriteVarInt((ulong) files.Key);
-						writer.WriteVarInt(fileNumber);
+						writer.WriteVarLong((ulong) LogTagType.DeletedFile);
+						writer.WriteVarLong((ulong) files.Key);
+						writer.WriteVarLong(fileNumber);
 					}
 				}
 			}
@@ -319,13 +319,13 @@ namespace MiNET.LevelDB
 					int level = files.Key;
 					foreach (FileMetadata fileMeta in files.Value)
 					{
-						writer.WriteVarInt((ulong) LogTagType.NewFile);
+						writer.WriteVarLong((ulong) LogTagType.NewFile);
 						//int level = (int) reader.ReadVarLong();
-						writer.WriteVarInt((ulong) level);
+						writer.WriteVarLong((ulong) level);
 						//ulong fileNumber = reader.ReadVarLong();
-						writer.WriteVarInt((ulong) fileMeta.FileNumber);
+						writer.WriteVarLong((ulong) fileMeta.FileNumber);
 						//ulong fileSize = reader.ReadVarLong();
-						writer.WriteVarInt((ulong) fileMeta.FileSize);
+						writer.WriteVarLong((ulong) fileMeta.FileSize);
 						//var smallest = reader.ReadLengthPrefixedBytes();
 						writer.WriteWithLen(fileMeta.SmallestKey);
 						//var largest = reader.ReadLengthPrefixedBytes();

@@ -1,4 +1,29 @@
-﻿using System;
+﻿#region LICENSE
+
+// The contents of this file are subject to the Common Public Attribution
+// License Version 1.0. (the "License"); you may not use this file except in
+// compliance with the License. You may obtain a copy of the License at
+// https://github.com/NiclasOlofsson/MiNET/blob/master/LICENSE.
+// The License is based on the Mozilla Public License Version 1.1, but Sections 14
+// and 15 have been added to cover use of software over a computer network and
+// provide for limited attribution for the Original Developer. In addition, Exhibit A has
+// been modified to be consistent with Exhibit B.
+// 
+// Software distributed under the License is distributed on an "AS IS" basis,
+// WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License for
+// the specific language governing rights and limitations under the License.
+// 
+// The Original Code is MiNET.
+// 
+// The Original Developer is the Initial Developer.  The Initial Developer of
+// the Original Code is Niclas Olofsson.
+// 
+// All portions of the code written by Niclas Olofsson are Copyright (c) 2014-2020 Niclas Olofsson.
+// All Rights Reserved.
+
+#endregion
+
+using System;
 using System.IO;
 using System.Text;
 
@@ -6,11 +31,19 @@ namespace MiNET.LevelDB.Utils
 {
 	public ref struct SpanWriter
 	{
-		private Span<byte> _buffer;
+		private readonly Span<byte> _buffer;
 
 		public int Position { get; set; }
 		public int Length => _buffer.Length;
 		public bool Eof => Position >= _buffer.Length;
+
+		public Span<byte> Buffer => _buffer;
+
+		public SpanWriter(int size)
+		{
+			_buffer = new Span<byte>(new byte[size]);
+			Position = 0;
+		}
 
 		public SpanWriter(Span<byte> buffer)
 		{
@@ -111,17 +144,22 @@ namespace MiNET.LevelDB.Utils
 
 		public void Write(string value)
 		{
-			WriteVarInt((ulong) value.Length);
+			WriteVarLong((ulong) value.Length);
 			Write(Encoding.UTF8.GetBytes(value));
 		}
 
 		public void WriteWithLen(Span<byte> value)
 		{
-			WriteVarInt((ulong) value.Length);
+			WriteVarLong((ulong) value.Length);
 			Write(value);
 		}
 
-		public void WriteVarInt(ulong value)
+		public void WriteVarLong(int value)
+		{
+			WriteVarLong((ulong) value);
+		}
+
+		public void WriteVarLong(ulong value)
 		{
 			while ((value & 0xFFFFFFFFFFFFFF80) != 0)
 			{
@@ -131,16 +169,5 @@ namespace MiNET.LevelDB.Utils
 
 			_buffer[Position++] = ((byte) value);
 		}
-
-		//public void WriteVarInt(ulong value)
-		//{
-		//	var num = value;
-		//	while (num >= 0x80U)
-		//	{
-		//		_buffer[Position++] = ((byte) (num | 0x80U));
-		//		num >>= 7;
-		//	}
-		//	_buffer[Position++] = (byte) num;
-		//}
 	}
 }

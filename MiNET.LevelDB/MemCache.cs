@@ -63,14 +63,14 @@ namespace MiNET.LevelDB
 				// write op type (byte)
 				writer.Write(entry.ResultState == ResultState.Exist ? (byte) OperationType.Put : (byte) OperationType.Delete);
 				// write key len (varint)
-				writer.WriteVarInt((ulong) key.Length);
+				writer.WriteVarLong((ulong) key.Length);
 				// write key
 				writer.Write(key);
 
 				if (entry.ResultState == ResultState.Exist)
 				{
 					// write data len (varint)
-					writer.WriteVarInt((ulong) entry.Data.Length);
+					writer.WriteVarLong((ulong) entry.Data.Length);
 					// write data
 					writer.Write(entry.Data);
 				}
@@ -103,6 +103,7 @@ namespace MiNET.LevelDB
 		{
 			_resultCache = new Dictionary<byte[], ResultCacheEntry>(new ByteArrayComparer());
 
+			int entriesCount = 0;
 			while (true)
 			{
 				Record record = reader.ReadRecord();
@@ -118,11 +119,14 @@ namespace MiNET.LevelDB
 				if (record.Length != (ulong) record.Data.Length) throw new Exception($"Invalid record state. Length not matching");
 
 				var entries = DecodeBatch(record.Data);
-				foreach (KeyValuePair<byte[], ResultCacheEntry> entry in entries)
+				entriesCount += entries.Count;
+				foreach (KeyValuePair<byte[], ResultCacheEntry> entry in entries.OrderBy(kvp => kvp.Value.Sequence))
 				{
 					_resultCache[entry.Key] = entry.Value;
 				}
 			}
+			Log.Debug($"Total count of entries read: {entriesCount}");
+			Log.Debug($"Total count after filtering entries: {_resultCache.Count}");
 
 			_resultCache = _resultCache.OrderByDescending(kvp => kvp.Value.Sequence).ToDictionary(k => k.Key, k => k.Value);
 		}

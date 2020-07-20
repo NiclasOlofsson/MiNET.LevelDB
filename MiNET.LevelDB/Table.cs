@@ -1,3 +1,28 @@
+﻿#region LICENSE
+
+// The contents of this file are subject to the Common Public Attribution
+// License Version 1.0. (the "License"); you may not use this file except in
+// compliance with the License. You may obtain a copy of the License at
+// https://github.com/NiclasOlofsson/MiNET/blob/master/LICENSE.
+// The License is based on the Mozilla Public License Version 1.1, but Sections 14
+// and 15 have been added to cover use of software over a computer network and
+// provide for limited attribution for the Original Developer. In addition, Exhibit A has
+// been modified to be consistent with Exhibit B.
+// 
+// Software distributed under the License is distributed on an "AS IS" basis,
+// WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License for
+// the specific language governing rights and limitations under the License.
+// 
+// The Original Code is MiNET.
+// 
+// The Original Developer is the Initial Developer.  The Initial Developer of
+// the Original Code is Niclas Olofsson.
+// 
+// All portions of the code written by Niclas Olofsson are Copyright (c) 2014-2020 Niclas Olofsson.
+// All Rights Reserved.
+
+#endregion
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -51,7 +76,18 @@ namespace MiNET.LevelDB
 					footer = Footer.Read(stream);
 				}
 				_blockIndex = footer.BlockIndexBlockHandle.ReadBlock(_memFile);
-				_metaIndex = footer.MetaindexBlockHandle.ReadBlock(_memFile);
+				_metaIndex = footer.MetaIndexBlockHandle.ReadBlock(_memFile);
+
+				Dictionary<string, BlockHandle> filters = GetFilters();
+				if (filters.TryGetValue("filter.leveldb.BuiltinBloomFilter2", out BlockHandle filterHandle))
+				{
+					//var filterBlock = filterHandle.ReadBlock(_memViewStream);
+					byte[] filterBlock = filterHandle.ReadBlock(_memFile);
+					if (Log.IsDebugEnabled) Log.Debug("\n" + filterBlock.HexDump(cutAfterFive: true));
+
+					_bloomFilterPolicy = new BloomFilterPolicy();
+					_bloomFilterPolicy.Parse(filterBlock);
+				}
 			}
 
 			BlockHandle handle = FindBlockHandleInBlockIndex(key);
@@ -60,23 +96,14 @@ namespace MiNET.LevelDB
 				Log.Error($"Expected to find block, but did not");
 				return ResultStatus.NotFound;
 			}
-
-			if (_bloomFilterPolicy == null)
+			else
 			{
-				var filters = GetFilters();
-				if (filters.TryGetValue("filter.leveldb.BuiltinBloomFilter2", out BlockHandle filterHandle))
-				{
-					//var filterBlock = filterHandle.ReadBlock(_memViewStream);
-					var filterBlock = filterHandle.ReadBlock(_memFile);
-					if (Log.IsDebugEnabled) Log.Debug("\n" + filterBlock.HexDump(cutAfterFive: true));
-
-					_bloomFilterPolicy = new BloomFilterPolicy();
-					_bloomFilterPolicy.Parse(filterBlock);
-				}
+				Log.Debug($"Found key at {handle.Offset} with length {handle.Length}");
 			}
+
 			if (_bloomFilterPolicy?.KeyMayMatch(key, handle.Offset) ?? true)
 			{
-				var targetBlock = GetBlock(handle);
+				byte[] targetBlock = GetBlock(handle);
 
 				return SeekKeyInBlockData(key, targetBlock);
 			}
@@ -116,7 +143,7 @@ namespace MiNET.LevelDB
 				//TODO: This is pretty wrong since it assumes no sharing. However, it works so far.
 				if (shared != 0) throw new Exception($"Got {shared} shared bytes for index block. We can't handle that right now.");
 
-				var keyData = reader.Read(shared, nonShared);
+				ReadOnlySpan<byte> keyData = reader.Read(shared, nonShared);
 
 				var handle = BlockHandle.ReadBlockHandle(ref reader);
 
@@ -139,13 +166,14 @@ namespace MiNET.LevelDB
 			//	if (_comparator.Compare(blockIndex.Key.AsSpan().UserKey(), key) >= 0) return blockIndex.Value;
 			//}
 
-			BlockSeeker seeker = new BlockSeeker(_blockIndex);
+			var seeker = new BlockSeeker(_blockIndex);
 			if (seeker.Seek(key))
 			{
-				var foundKey = seeker.Key;
+				Span<byte> foundKey = seeker.Key;
+				Log.Debug($"Found key:{foundKey.ToHexString()}");
 				if (_comparator.Compare(foundKey.UserKey(), key) >= 0)
 				{
-					var value = seeker.CurrentValue;
+					ReadOnlySpan<byte> value = seeker.CurrentValue;
 					if (value != null)
 					{
 						var handle = BlockHandle.ReadBlockHandle(value);
@@ -160,7 +188,7 @@ namespace MiNET.LevelDB
 
 		private ResultStatus SeekKeyInBlockData(Span<byte> key, ReadOnlySpan<byte> blockData)
 		{
-			BlockSeeker seeker = new BlockSeeker(blockData);
+			var seeker = new BlockSeeker(blockData);
 			if (seeker.Seek(key))
 			{
 				var foundKey = seeker.Key;
@@ -186,6 +214,10 @@ namespace MiNET.LevelDB
 						Log.Debug($"\nFound key={foundKey.ToHexString()}\nSearch Key={key.ToHexString()}");
 
 					return new ResultStatus(ResultState.Exist, value);
+				}
+				else
+				{
+					Log.Warn($"Found unknown key type: {keyType}");
 				}
 			}
 

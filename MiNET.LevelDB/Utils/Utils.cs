@@ -60,6 +60,11 @@ namespace MiNET.LevelDB.Utils
 			return fullKey.Slice(fullKey.Length - 8, 1)[0];
 		}
 
+		public static string ToHexString(this byte[] bytes)
+		{
+			return ToHexString(bytes.AsSpan());
+		}
+
 		public static string ToHexString(this Span<byte> bytes)
 		{
 			return bytes.ToArray().HexDump(bytes.Length, cutAfterFive: true, printText: false);

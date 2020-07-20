@@ -1,8 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace MiNET.LevelDB.Utils
 {
-	public class BytewiseComparator
+	public class BytewiseComparator : IComparer<byte[]>
 	{
 		public string Name { get; } = "leveldb.BytewiseComparator";
 
@@ -30,6 +31,11 @@ namespace MiNET.LevelDB.Utils
 
 		public void FindShortSuccessor(string key)
 		{
+		}
+
+		public int Compare(byte[] x, byte[] y)
+		{
+			return Compare(x.AsSpan(), y.AsSpan());
 		}
 	}
 }
