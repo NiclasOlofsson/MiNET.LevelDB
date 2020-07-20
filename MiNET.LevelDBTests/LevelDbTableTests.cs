@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using log4net;
 using MiNET.LevelDB.Utils;
@@ -59,48 +60,103 @@ namespace MiNET.LevelDB.Tests
 			Assert.Fail("Found no entry");
 		}
 
+		//[Test]
+		//public void WriteToNewTableTest()
+		//{
+		//	using var logReader = new LogReader(new FileInfo(@"TestWorld\000047.log"));
+		//	var memCache = new MemCache();
+		//	memCache.Load(logReader);
+
+		//	var newFileInfo = new FileInfo(Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".ldb"));
+		//	using FileStream stream = File.Create(newFileInfo.FullName);
+		//	var creator = new TableCreator(stream);
+
+		//	foreach (KeyValuePair<byte[], MemCache.ResultCacheEntry> entry in memCache._resultCache.OrderBy(kvp => kvp.Key, new BytewiseComparator()).ThenBy(kvp => kvp.Value.Sequence))
+		//	{
+		//		if (entry.Value.ResultState != ResultState.Exist && entry.Value.ResultState != ResultState.Deleted) continue;
+
+		//		byte[] key = entry.Key;
+		//		byte[] data = entry.Value.Data;
+
+		//		if (entry.Value.ResultState == ResultState.Deleted)
+		//		{
+		//			Log.Warn($"Key:{key.ToHexString()} {entry.Value.Sequence}, {entry.Value.ResultState == ResultState.Exist}, size:{entry.Value.Data?.Length ?? 0}");
+		//		}
+		//		else
+		//			Log.Debug($"Key:{key.ToHexString()} {entry.Value.Sequence}, {entry.Value.ResultState == ResultState.Exist}");
+
+		//		byte[] opAndSeq = BitConverter.GetBytes((ulong) entry.Value.Sequence);
+		//		opAndSeq[0] = (byte) (entry.Value.ResultState == ResultState.Exist ? 1 : 0);
+		//		creator.Add(key.Concat(opAndSeq).ToArray(), data);
+		//	}
+		//	creator.Finish();
+		//	stream.Close();
+		//	Log.Debug($"Size distinct:{memCache._resultCache.Distinct().Count()}");
+		//	Log.Debug($"Wrote {memCache._resultCache.Count} values");
+
+
+		//	//
+		//	// Run some tests and see if we can read the table we write
+
+		//	var table = new Table(newFileInfo);
+
+		//	//Key:fe ff ff ff f1 ff ff ff 76 
+		//	ResultStatus result = table.Get(new byte[] {0xfe, 0xff, 0xff, 0xff, 0xf1, 0xff, 0xff, 0xff, 0x76});
+		//	Assert.AreEqual(ResultState.Exist, result.State);
+
+		//	//Key:fa 40 ab 14 4d 96 ec 7b 62 38 f7 63
+		//	result = table.Get(new byte[] {0xfa, 0x40, 0xab, 0x14, 0x4d, 0x96, 0xec, 0x7b, 0x62, 0x38, 0xf7, 0x63});
+		//	Assert.AreEqual(ResultState.NotFound, result.State);
+
+		//	//Key:fd ff ff ff f1 ff ff ff 39  28036, False, size:0
+		//	result = table.Get(new byte[] {0xfd, 0xff, 0xff, 0xff, 0xf1, 0xff, 0xff, 0xff, 0x39});
+		//	Assert.AreEqual(ResultState.Deleted, result.State);
+
+		//	// Test ALL keys
+		//	foreach (KeyValuePair<byte[], MemCache.ResultCacheEntry> entry in memCache._resultCache.OrderBy(kvp => kvp.Key, new BytewiseComparator()))
+		//	{
+		//		if (entry.Value.ResultState != ResultState.Exist)
+		//			continue;
+
+		//		byte[] key = entry.Key;
+		//		byte[] data = entry.Value.Data;
+
+		//		result = table.Get(key);
+		//		Assert.AreEqual(ResultState.Exist, result.State);
+		//		Assert.AreEqual(data, result.Data.ToArray());
+		//	}
+		//}
+
 		[Test]
-		public void WriteToNewTableTest()
+		public void CompactMemCacheTest()
 		{
 			using var logReader = new LogReader(new FileInfo(@"TestWorld\000047.log"));
 			var memCache = new MemCache();
 			memCache.Load(logReader);
 
 			var newFileInfo = new FileInfo(Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".ldb"));
-			using FileStream stream = File.Create(newFileInfo.FullName);
-			var creator = new TableCreator(stream);
+			var db = new Database(null);
+			db.WriteLevel0Table(memCache, newFileInfo);
 
-			foreach (KeyValuePair<byte[], MemCache.ResultCacheEntry> entry in memCache._resultCache.OrderBy(kvp => kvp.Key, new BytewiseComparator()))
-			{
-				if (entry.Value.ResultState != ResultState.Exist) continue;
-
-				byte[] key = entry.Key;
-				byte[] data = entry.Value.Data;
-
-				Log.Debug($"Key:{key.ToHexString()} {entry.Value.Sequence}");
-				//Key:e3 ff ff ff f9 ff ff ff 31 
-
-				byte[] opAndSeq = BitConverter.GetBytes((ulong) entry.Value.Sequence);
-				opAndSeq[0] = 1;
-				creator.Add(key.Concat(opAndSeq).ToArray(), data);
-			}
-			creator.Finish();
-			stream.Close();
-			Log.Debug($"Wrote {memCache._resultCache.Count} values");
-
-			//Key:fa 40 ab 14 4d 96 ec 7b 62 38 f7 63
-			//Key:fe ff ff ff f1 ff ff ff 76 
 
 			var table = new Table(newFileInfo);
+
+			//Key:fe ff ff ff f1 ff ff ff 76 
 			ResultStatus result = table.Get(new byte[] {0xfe, 0xff, 0xff, 0xff, 0xf1, 0xff, 0xff, 0xff, 0x76});
 			Assert.AreEqual(ResultState.Exist, result.State);
 
+			//Key:fa 40 ab 14 4d 96 ec 7b 62 38 f7 63
 			result = table.Get(new byte[] {0xfa, 0x40, 0xab, 0x14, 0x4d, 0x96, 0xec, 0x7b, 0x62, 0x38, 0xf7, 0x63});
-			Assert.AreEqual(ResultState.Exist, result.State);
+			Assert.AreEqual(ResultState.NotFound, result.State);
+
+			//Key:fd ff ff ff f1 ff ff ff 39  28036, False, size:0
+			result = table.Get(new byte[] {0xfd, 0xff, 0xff, 0xff, 0xf1, 0xff, 0xff, 0xff, 0x39});
+			Assert.AreEqual(ResultState.Deleted, result.State);
 
 			foreach (KeyValuePair<byte[], MemCache.ResultCacheEntry> entry in memCache._resultCache.OrderBy(kvp => kvp.Key, new BytewiseComparator()))
 			{
-				if (entry.Value.ResultState != ResultState.Exist) continue;
+				if (entry.Value.ResultState != ResultState.Exist)
+					continue;
 
 				byte[] key = entry.Key;
 				byte[] data = entry.Value.Data;
@@ -108,6 +164,127 @@ namespace MiNET.LevelDB.Tests
 				result = table.Get(key);
 				Assert.AreEqual(ResultState.Exist, result.State);
 				Assert.AreEqual(data, result.Data.ToArray());
+			}
+		}
+
+
+		[Test]
+		public void DupCompressionTest()
+		{
+			// This is just an off-topic experiment. Allocation free compression, reusing the same buffer for input
+			// and output. Also works for decompression if uncompressed size is know beforehand.
+
+			var buffer = FillArrayWithRandomBytes(1234, 10000, 10).AsMemory();
+			var originalBuffer = buffer.ToArray();
+			var firstBytes = buffer.Slice(0, 10).ToArray();
+
+			var inStream = new BufferStream(buffer);
+
+			var compressStream = new DeflateStream(inStream, CompressionLevel.Optimal, true);
+			compressStream.Write(buffer.Span);
+			Log.Debug("Flushing");
+			compressStream.Flush();
+
+			var output = inStream.GetBuffer();
+			var inFirstBytes = output.Slice(0, 10);
+			Assert.AreNotEqual(firstBytes.ToHexString(), inFirstBytes.ToHexString());
+
+			long len = inStream.Position;
+			Assert.AreEqual(5127, len);
+
+			var compressedMem = new BufferStream(buffer.Slice(0, (int) len));
+			var decompressStream = new DeflateStream(compressedMem, CompressionMode.Decompress);
+
+			var outStream = new BufferStream(buffer);
+			decompressStream.CopyTo(outStream);
+
+			var inFinalBytes = outStream.GetBuffer().Slice(0, 10);
+			Assert.AreEqual(firstBytes.ToHexString(), inFinalBytes.ToHexString());
+			Assert.AreEqual(originalBuffer.ToHexString(), outStream.GetBuffer().ToHexString());
+		}
+
+		public static byte[] FillArrayWithRandomBytes(int seed, int size, int max)
+		{
+			var bytes = new byte[size];
+			var random = new Random(seed);
+			for (int i = 0; i < bytes.Length; i++)
+			{
+				bytes[i] = (byte) random.Next(max);
+			}
+
+			return bytes;
+		}
+
+
+		public class BufferStream : Stream
+		{
+			private static readonly ILog Log = LogManager.GetLogger(typeof(BufferStream));
+
+			private readonly Memory<byte> _buffer;
+			private long _position = 0;
+			private long _length = 0;
+
+			public BufferStream(Memory<byte> buffer)
+			{
+				_buffer = buffer;
+				_length = buffer.Length;
+			}
+
+			public override void Flush()
+			{
+				throw new NotImplementedException();
+			}
+
+			public override int Read(byte[] buffer, int offset, int count)
+			{
+				Log.Debug($"Read: {_position} {offset}, {count}");
+				int readLen = (int) Math.Min(count, _length - Position);
+				_buffer.Slice((int) _position, readLen).Span.CopyTo(buffer);
+				//Buffer.BlockCopy(_buffer, (int) _position, buffer, offset, readLen);
+				_position += readLen;
+				return readLen;
+			}
+
+			public override long Seek(long offset, SeekOrigin origin)
+			{
+				throw new NotImplementedException();
+				return 0;
+			}
+
+			public override void SetLength(long value)
+			{
+				throw new NotImplementedException();
+			}
+
+			public override void Write(byte[] buffer, int offset, int count)
+			{
+				Log.Debug($"Write: {_position} {offset}, {count}, {_buffer.Slice((int) _position, count).Span.Length}");
+				buffer.AsSpan(0, count).CopyTo(_buffer.Slice((int) _position, count).Span);
+				_length += count;
+				_position += count;
+			}
+
+			public override bool CanRead { get; } = true;
+			public override bool CanSeek { get; } = false;
+			public override bool CanWrite { get; } = true;
+
+			public override long Length
+			{
+				get
+				{
+					return _length;
+				}
+			}
+
+			public override long Position
+			{
+				get => _position;
+				set => _position = value;
+			}
+
+			public Memory<byte> GetBuffer()
+			{
+				return _buffer;
 			}
 		}
 	}

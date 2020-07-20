@@ -1,9 +1,36 @@
-﻿using System;
+﻿#region LICENSE
+
+// The contents of this file are subject to the Common Public Attribution
+// License Version 1.0. (the "License"); you may not use this file except in
+// compliance with the License. You may obtain a copy of the License at
+// https://github.com/NiclasOlofsson/MiNET/blob/master/LICENSE.
+// The License is based on the Mozilla Public License Version 1.1, but Sections 14
+// and 15 have been added to cover use of software over a computer network and
+// provide for limited attribution for the Original Developer. In addition, Exhibit A has
+// been modified to be consistent with Exhibit B.
+// 
+// Software distributed under the License is distributed on an "AS IS" basis,
+// WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License for
+// the specific language governing rights and limitations under the License.
+// 
+// The Original Code is MiNET.
+// 
+// The Original Developer is the Initial Developer.  The Initial Developer of
+// the Original Code is Niclas Olofsson.
+// 
+// All portions of the code written by Niclas Olofsson are Copyright (c) 2014-2020 Niclas Olofsson.
+// All Rights Reserved.
+
+#endregion
+
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using log4net;
+using MiNET.LevelDB.Utils;
 
 [assembly: InternalsVisibleTo("MiNET.LevelDB.Tests")]
 
@@ -189,6 +216,82 @@ namespace MiNET.LevelDB
 				_manifest = null;
 				temp.Close();
 			}
+		}
+
+		/// <summary>
+		///     Save contents of memcache to a new table file
+		/// </summary>
+		/// <param name="manifest"></param>
+		/// <param name="memCache"></param>
+		public void CompactMemCache()
+		{
+			// Lock memcache for write
+
+			// Write prev memcache to a level 0 table
+			ulong fileNumber = _manifest.CurrentVersion.NextFileNumber++ ?? 0;
+			var tableFileInfo = new FileInfo(Path.Combine(Directory.FullName, $"{fileNumber:000000}.ldb"));
+			FileMetadata meta = WriteLevel0Table(_newMemCache, tableFileInfo);
+
+			// Add new file to current version
+			meta.FileNumber = fileNumber;
+
+			List<FileMetadata> newFiles = _manifest.CurrentVersion.NewFiles[0] ?? new List<FileMetadata>();
+			newFiles.Add(meta);
+			_manifest.CurrentVersion.NewFiles[0] = newFiles;
+
+			// Update version data and commit new manifest (save)
+
+			// replace current memcache with new version.
+
+			// unlock
+		}
+
+		public FileMetadata WriteLevel0Table(MemCache memCache, FileInfo tableFileInfo)
+		{
+			using FileStream fileStream = File.Create(tableFileInfo.FullName);
+			var creator = new TableCreator(fileStream);
+
+			byte[] smallestKey = null;
+			byte[] largestKey = null;
+
+			foreach (KeyValuePair<byte[], MemCache.ResultCacheEntry> entry in memCache._resultCache.OrderBy(kvp => kvp.Key, new BytewiseComparator()).ThenBy(kvp => kvp.Value.Sequence))
+			{
+				if (entry.Value.ResultState != ResultState.Exist && entry.Value.ResultState != ResultState.Deleted) continue;
+
+				byte[] key = entry.Key;
+				byte[] data = entry.Value.Data;
+
+				smallestKey ??= key;
+				largestKey = key;
+
+				if (Log.IsDebugEnabled)
+				{
+					if (entry.Value.ResultState == ResultState.Deleted)
+						Log.Warn($"Key:{key.ToHexString()} {entry.Value.Sequence}, {entry.Value.ResultState == ResultState.Exist}, size:{entry.Value.Data?.Length ?? 0}");
+					else
+						Log.Debug($"Key:{key.ToHexString()} {entry.Value.Sequence}, {entry.Value.ResultState == ResultState.Exist}");
+				}
+
+				byte[] opAndSeq = BitConverter.GetBytes((ulong) entry.Value.Sequence);
+				opAndSeq[0] = (byte) (entry.Value.ResultState == ResultState.Exist ? 1 : 0);
+				creator.Add(key.Concat(opAndSeq).ToArray(), data);
+			}
+
+			creator.Finish();
+			long fileSize = fileStream.Length;
+			fileStream.Close();
+
+			Log.Debug($"Size distinct:{memCache._resultCache.Distinct().Count()}");
+			Log.Debug($"Wrote {memCache._resultCache.Count} values");
+
+			return new FileMetadata
+			{
+				FileNumber = 0, // Set in calling method
+				FileSize = (ulong) fileSize,
+				SmallestKey = smallestKey,
+				LargestKey = largestKey,
+				Table = null
+			};
 		}
 
 		public bool IsClosed()

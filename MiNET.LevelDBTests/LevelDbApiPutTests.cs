@@ -78,7 +78,7 @@ namespace MiNET.LevelDB.Tests
 			}
 		}
 
-		private byte[] FillArrayWithRandomBytes(int size)
+		public static byte[] FillArrayWithRandomBytes(int size)
 		{
 			var bytes = new byte[size];
 			var random = new Random();

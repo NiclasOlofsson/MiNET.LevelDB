@@ -57,7 +57,7 @@ namespace MiNET.LevelDB
 
 		public ResultStatus Get(Span<byte> key)
 		{
-			if (Log.IsDebugEnabled) Log.Debug($"\nSearch Key={key.ToHexString()}");
+			if (Log.IsDebugEnabled) Log.Debug($"Get Key from table: {key.ToHexString()}");
 
 			// To find a key in the table you:
 			// 1) Read the block index. This index have one entry for each block in the file. For each entry it holds the
@@ -81,9 +81,8 @@ namespace MiNET.LevelDB
 				Dictionary<string, BlockHandle> filters = GetFilters();
 				if (filters.TryGetValue("filter.leveldb.BuiltinBloomFilter2", out BlockHandle filterHandle))
 				{
-					//var filterBlock = filterHandle.ReadBlock(_memViewStream);
 					byte[] filterBlock = filterHandle.ReadBlock(_memFile);
-					if (Log.IsDebugEnabled) Log.Debug("\n" + filterBlock.HexDump(cutAfterFive: true));
+					if (Log.IsDebugEnabled) Log.Debug("Found filter block:\n" + filterBlock.HexDump(cutAfterFive: true));
 
 					_bloomFilterPolicy = new BloomFilterPolicy();
 					_bloomFilterPolicy.Parse(filterBlock);
@@ -93,12 +92,8 @@ namespace MiNET.LevelDB
 			BlockHandle handle = FindBlockHandleInBlockIndex(key);
 			if (handle == null)
 			{
-				Log.Error($"Expected to find block, but did not");
+				Log.Error($"Expected to find block with key/value, but found none.");
 				return ResultStatus.NotFound;
-			}
-			else
-			{
-				Log.Debug($"Found key at {handle.Offset} with length {handle.Length}");
 			}
 
 			if (_bloomFilterPolicy?.KeyMayMatch(key, handle.Offset) ?? true)
@@ -170,7 +165,7 @@ namespace MiNET.LevelDB
 			if (seeker.Seek(key))
 			{
 				Span<byte> foundKey = seeker.Key;
-				Log.Debug($"Found key:{foundKey.ToHexString()}");
+				Log.Debug($"Found key in block index: {foundKey.ToHexString()}");
 				if (_comparator.Compare(foundKey.UserKey(), key) >= 0)
 				{
 					ReadOnlySpan<byte> value = seeker.CurrentValue;
@@ -197,27 +192,30 @@ namespace MiNET.LevelDB
 
 				bool matched = _comparator.Compare(key, foundKey.UserKey()) == 0;
 
-				if (keyType == 0 && matched)
+				if (matched)
 				{
-					if (Log.IsDebugEnabled) Log.Warn($"Found deleted entry for Key={foundKey.ToHexString()}\nWas search for key={key.ToHexString()}");
-				}
+					if (keyType == 0)
+					{
+						if (Log.IsDebugEnabled) Log.Warn($"Found deleted entry for Key={foundKey.ToHexString()}\nWas search for key={key.ToHexString()}");
+						return ResultStatus.Deleted;
+					}
+					if (keyType == 1)
+					{
+						//     value: char[value_length]
+						ReadOnlySpan<byte> value = seeker.CurrentValue;
 
-				if (keyType == 1 && matched)
-				{
-					//     value: char[value_length]
-					var value = seeker.CurrentValue;
+						if (Log.IsDebugEnabled) Log.Debug($"Seek key: {key.ToHexString()} and found key: {foundKey.ToHexString()} with data:\n{value.HexDump(cutAfterFive: true)}");
 
-					if (Log.IsDebugEnabled)
-						Log.Debug($"\nKey={foundKey.ToHexString()}\n{value.HexDump(cutAfterFive: true)}");
-
-					if (Log.IsDebugEnabled)
-						Log.Debug($"\nFound key={foundKey.ToHexString()}\nSearch Key={key.ToHexString()}");
-
-					return new ResultStatus(ResultState.Exist, value);
+						return new ResultStatus(ResultState.Exist, value);
+					}
+					else
+					{
+						Log.Warn($"Found unknown key type: {keyType}");
+					}
 				}
 				else
 				{
-					Log.Warn($"Found unknown key type: {keyType}");
+					Log.Warn($"Did not match search key: {key.ToHexString()} with {foundKey.ToHexString()}");
 				}
 			}
 

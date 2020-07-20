@@ -87,8 +87,7 @@ namespace MiNET.LevelDB
 			//    type: uint8
 			//    crc: uint32
 
-			//verifyChecksum = verifyChecksum || Database.ParanoidMode;
-			verifyChecksum = false;
+			verifyChecksum = verifyChecksum || Database.ParanoidMode;
 
 			byte[] data = new byte[length];
 			stream.Seek((long) 0, SeekOrigin.Begin);

@@ -122,6 +122,7 @@ namespace MiNET.LevelDB
 				entriesCount += entries.Count;
 				foreach (KeyValuePair<byte[], ResultCacheEntry> entry in entries.OrderBy(kvp => kvp.Value.Sequence))
 				{
+					// This should overwrite older entries and only the latest operation should be saved
 					_resultCache[entry.Key] = entry.Value;
 				}
 			}
