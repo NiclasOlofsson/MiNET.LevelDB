@@ -45,12 +45,28 @@ namespace MiNET.LevelDB.Tests
 			Log.Info($" ************************ RUNNING TEST: {TestContext.CurrentContext.Test.Name} ****************************** ");
 		}
 
+		public DirectoryInfo GetTestDirectory()
+		{
+			var directory = new DirectoryInfo(@"TestWorld");
+			string tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+			Directory.CreateDirectory(tempDir);
+
+			FileInfo[] files = directory.GetFiles();
+			foreach (var file in files)
+			{
+				string newPath = Path.Combine(tempDir, file.Name);
+				file.CopyTo(newPath);
+			}
+
+			return new DirectoryInfo(tempDir);
+		}
+
 		[Test]
 		public void LevelDbSearchManifestTest()
 		{
-			var directory = @"TestWorld\";
+			DirectoryInfo directory = GetTestDirectory();
 
-			var currentStream = File.OpenText($@"{directory}CURRENT");
+			var currentStream = File.OpenText(Path.Combine(directory.FullName, "CURRENT"));
 			string manifestFilename = currentStream.ReadLine();
 			currentStream.Close();
 
@@ -59,9 +75,9 @@ namespace MiNET.LevelDB.Tests
 			// 08 01 02 00 00 01 00 00 00 00 00 00 00 00 00 00  ................
 
 			ResultStatus result;
-			using (Manifest manifest = new Manifest(new DirectoryInfo(directory)))
+			using (Manifest manifest = new Manifest(directory))
 			{
-				using (var reader = new LogReader(new FileInfo($@"{directory}{manifestFilename}")))
+				using (var reader = new LogReader(new FileInfo(Path.Combine(directory.FullName, manifestFilename))))
 				{
 					manifest.Load(reader);
 				}
@@ -75,7 +91,9 @@ namespace MiNET.LevelDB.Tests
 		{
 			// https://github.com/google/leveldb/blob/master/doc/log_format.md
 
-			LogReader logReader = new LogReader(new FileInfo(@"TestWorld\000047.log"));
+			DirectoryInfo directory = GetTestDirectory();
+
+			LogReader logReader = new LogReader(new FileInfo(Path.Combine(directory.FullName, "000047.log")));
 			logReader.Open();
 			MemCache memCache = new MemCache();
 			memCache.Load(logReader);
@@ -91,9 +109,9 @@ namespace MiNET.LevelDB.Tests
 		{
 			// https://github.com/google/leveldb/blob/master/doc/log_format.md
 
-			//var filestream = File.OpenRead(@"D:\Temp\My World\db\000028.log");
+			DirectoryInfo directory = GetTestDirectory();
 
-			LogReader logReader = new LogReader(new FileInfo(@"TestWorld\000047.log"));
+			LogReader logReader = new LogReader(new FileInfo(Path.Combine(directory.FullName, "000047.log")));
 
 			BytewiseComparator comparator = new BytewiseComparator();
 
@@ -159,9 +177,9 @@ namespace MiNET.LevelDB.Tests
 		{
 			VersionEdit version;
 			{
-				var directory = @"TestWorld\";
+				DirectoryInfo directory = GetTestDirectory();
 
-				var currentStream = File.OpenText($@"{directory}CURRENT");
+				var currentStream = File.OpenText(Path.Combine(directory.FullName, "CURRENT"));
 				string manifestFilename = currentStream.ReadLine();
 				currentStream.Close();
 

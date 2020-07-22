@@ -44,10 +44,6 @@ namespace MiNET.LevelDB.Tests
 			Log.Info($" ************************ RUNNING TEST: {TestContext.CurrentContext.Test.Name} ****************************** ");
 		}
 
-
-		//DirectoryInfo directory = new DirectoryInfo(@"D:\Temp\My World\db\");
-		DirectoryInfo directory = new DirectoryInfo(@"TestWorld");
-
 		List<byte[]> testKeys = new List<byte[]>()
 		{
 			new byte[] {0xf6, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x2f, 0x00,},
@@ -58,10 +54,26 @@ namespace MiNET.LevelDB.Tests
 			new byte[] {0xfa, 0xff, 0xff, 0xff, 0xe7, 0xff, 0xff, 0xff, 0x2f, 0x03,},
 		};
 
+		public DirectoryInfo GetTestDirectory()
+		{
+			var directory = new DirectoryInfo(@"TestWorld");
+			string tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+			Directory.CreateDirectory(tempDir);
+
+			FileInfo[] files = directory.GetFiles();
+			foreach (var file in files)
+			{
+				string newPath = Path.Combine(tempDir, file.Name);
+				file.CopyTo(newPath);
+			}
+
+			return new DirectoryInfo(tempDir);
+		}
+
 		[Test]
 		public void LevelDbOpenFromDirectory()
 		{
-			using (var db = new Database(directory))
+			using (var db = new Database(GetTestDirectory()))
 			{
 				db.Open();
 			}
@@ -142,7 +154,7 @@ namespace MiNET.LevelDB.Tests
 		public void LevelDbGetValueFromKey()
 		{
 			byte[] result;
-			using (var db = new Database(directory))
+			using (var db = new Database(GetTestDirectory()))
 			{
 				db.Open();
 				result = db.Get(testKeys.Last());
@@ -157,7 +169,7 @@ namespace MiNET.LevelDB.Tests
 		public void LevelDbRepeatedGetValues()
 		{
 			Stopwatch sw;
-			using (var db = new Database(directory))
+			using (var db = new Database(GetTestDirectory()))
 			{
 				db.Open();
 
@@ -187,7 +199,7 @@ namespace MiNET.LevelDB.Tests
 		{
 			// fa ff ff ff e7 ff ff ff 2f 03
 			byte[] result;
-			using (var db = new Database(directory))
+			using (var db = new Database(GetTestDirectory()))
 			{
 				db.Open();
 

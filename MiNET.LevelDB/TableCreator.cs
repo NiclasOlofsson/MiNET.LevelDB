@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using log4net;
 using MiNET.LevelDB.Utils;
 
@@ -88,15 +89,20 @@ namespace MiNET.LevelDB
 			byte[] dataBlock = blockCreator.Finish();
 			if (dataBlock.Length == 0) return null;
 
-			byte compressionType = 0; // zlib
-			//byte compressionType = 1; // zlib
-			//using var memStream = new MemoryStream(dataBlock);
+			// Compress here
+
+			byte compressionType = 0; // none
+
+			//byte compressionType = 2; // zlib
 			//memStream.WriteByte(0x87);
 			//memStream.WriteByte(0x9C);
+
+			//byte compressionType = 3; // zlib raw
+			//using var memStream = new MemoryStream();
 			//using var compStream = new DeflateStream(memStream, CompressionLevel.Optimal);
-
-
-			// Compress here
+			//compStream.Write(dataBlock);
+			//compStream.Flush();
+			//dataBlock = memStream.ToArray();
 
 			uint checkCrc = Crc32C.Compute(dataBlock);
 			checkCrc = Crc32C.Mask(Crc32C.Append(checkCrc, compressionType));
