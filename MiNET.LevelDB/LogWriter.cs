@@ -64,6 +64,7 @@ namespace MiNET.LevelDB
 			}
 
 			WriteData(_stream, data);
+			_stream.Flush();
 		}
 
 

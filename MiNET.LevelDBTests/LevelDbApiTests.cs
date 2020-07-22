@@ -79,7 +79,12 @@ namespace MiNET.LevelDB.Tests
 				db.CreateIfMissing = true;
 				db.Open();
 
+				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "CURRENT")), "Missing CURRENT");
+				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "MANIFEST-000001")), "Missing new manifest");
+				Assert.False(File.Exists(Path.Combine(tempDir.FullName, "000001.log")), "Didn't expect to have log file yet");
+
 				db.Put(key, data);
+				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "000001.log")), "Missing log");
 
 				byte[] result = db.Get(key);
 				Assert.AreEqual(data, result);
@@ -103,6 +108,7 @@ namespace MiNET.LevelDB.Tests
 			using (var db = new Database(tempDir))
 			{
 				db.Open();
+				Assert.False(File.Exists(Path.Combine(tempDir.FullName, "000001.log")), "Expected log to have been deleted");
 				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "000002.ldb")), "Missing level 0 table file");
 				Assert.False(File.Exists(Path.Combine(tempDir.FullName, "MANIFEST-000001")), "Should have removed old manifest");
 				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "MANIFEST-000003")), "Missing new manifest");
@@ -110,9 +116,13 @@ namespace MiNET.LevelDB.Tests
 				byte[] result = db.Get(key);
 				Assert.AreEqual(data, result);
 
+				db.Put(key, data);
+				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "000002.log")), "Missing log");
+
 				db.Close();
 			}
 
+			return;
 			// Try again to make sure nothing happens on close.
 			using (var db = new Database(tempDir))
 			{

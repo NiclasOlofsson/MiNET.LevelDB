@@ -201,6 +201,7 @@ namespace MiNET.LevelDB
 
 			// Read current log
 			var logFile = new FileInfo(Path.Combine(Directory.FullName, _manifest.CurrentVersion.GetLogFileName()));
+			Log.Debug($"Reading log from {logFile.FullName}");
 			using (var reader = new LogReader(logFile))
 			{
 				_newMemCache = new MemCache();
@@ -244,24 +245,25 @@ namespace MiNET.LevelDB
 			Close();
 		}
 
-		internal void CompactMemCache(bool force = false)
+		private void CompactMemCache(bool force = false)
 		{
 			if (!force && _newMemCache.GetEstimatedSize() < 4000000L) return; // 4Mb
 
 			if (_newMemCache._resultCache.Count == 0) return;
 
 			Log.Warn($"Compact kicking in");
+
 			// Lock memcache for write
 
 			// Write prev memcache to a level 0 table
 
 			VersionEdit currentVersion = _manifest.CurrentVersion;
-			ulong fileNumber = currentVersion.GetNewFileNumber();
+			ulong newFileNumber = currentVersion.GetNewFileNumber();
 
-			var tableFileInfo = new FileInfo(Path.Combine(Directory.FullName, $"{fileNumber:000000}.ldb"));
+			var tableFileInfo = new FileInfo(Path.Combine(Directory.FullName, $"{newFileNumber:000000}.ldb"));
 			FileMetadata meta = WriteLevel0Table(_newMemCache, tableFileInfo);
 			var newTable = new Table(tableFileInfo);
-			meta.FileNumber = fileNumber;
+			meta.FileNumber = newFileNumber;
 			meta.Table = newTable;
 
 			// Update version data and commit new manifest (save)
@@ -276,12 +278,19 @@ namespace MiNET.LevelDB
 			// replace current memcache with new version. Should probably do this after manifest is confirmed written ok.
 			var newCache = new MemCache();
 			_newMemCache = newCache;
-			var logFile = new FileInfo(Path.Combine(Directory.FullName, _manifest.CurrentVersion.GetLogFileName()));
+
+			// Replace log file with new one
+			string logFileToDelete = currentVersion.GetLogFileName();
+			var logFile = new FileInfo(Path.Combine(Directory.FullName, newVersion.GetLogFileName()));
+			LogWriter oldLog = _log;
 			_log = new LogWriter(logFile);
+			oldLog?.Close();
+			// Remove old log file
+			File.Delete(Path.Combine(Directory.FullName, logFileToDelete));
 
-			_manifest.CurrentVersion = newVersion;
-
+			// Update manifest with new version
 			string manifestFileToDelete = GetCurrentManifestFile();
+			_manifest.CurrentVersion = newVersion;
 			string manifestFilename = $"MANIFEST-{newVersion.GetNewFileNumber():000000}";
 			using (var writer = new LogWriter(new FileInfo($@"{Path.Combine(Directory.FullName, manifestFilename)}")))
 			{
@@ -294,6 +303,7 @@ namespace MiNET.LevelDB
 				currentStream.Close();
 			}
 
+			// Remove old manifest file
 			File.Delete($@"{Path.Combine(Directory.FullName, manifestFileToDelete)}");
 
 			// unlock
