@@ -148,7 +148,7 @@ namespace MiNET.LevelDB.Utils
 			Write(Encoding.UTF8.GetBytes(value));
 		}
 
-		public void WriteWithLen(Span<byte> value)
+		public void WriteLengthPrefixed(Span<byte> value)
 		{
 			WriteVarLong((ulong) value.Length);
 			Write(value);

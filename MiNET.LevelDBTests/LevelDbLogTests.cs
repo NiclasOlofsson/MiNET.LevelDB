@@ -101,23 +101,21 @@ namespace MiNET.LevelDB.Tests
 
 			while (true)
 			{
-				Record record = logReader.ReadRecord();
+				ReadOnlySpan<byte> data = logReader.ReadData();
 
-				if (record.LogRecordType != LogRecordType.Full) break;
+				if (logReader.Eof) break;
 
-				Log.Debug($"{record.ToString()}");
+				var dataReader = new SpanReader(data);
 
-				var datareader = new SpanReader(record.Data);
+				long sequenceNumber = dataReader.ReadInt64();
+				long size = dataReader.ReadInt32();
 
-				long sequenceNumber = datareader.ReadInt64();
-				long size = datareader.ReadInt32();
-
-				while (!datareader.Eof)
+				while (!dataReader.Eof)
 				{
-					byte recType = datareader.ReadByte();
+					byte recType = dataReader.ReadByte();
 
-					ulong v1 = datareader.ReadVarLong();
-					var currentKey = datareader.Read(v1);
+					ulong v1 = dataReader.ReadVarLong();
+					var currentKey = dataReader.Read(v1);
 
 					//CurrentKey = f5 ff ff ff eb ff ff ff 36
 
@@ -135,8 +133,8 @@ namespace MiNET.LevelDB.Tests
 						{
 							if (recType == 1)
 							{
-								v2 = datareader.ReadVarLong();
-								currentVal = datareader.Read(v2);
+								v2 = dataReader.ReadVarLong();
+								currentVal = dataReader.Read(v2);
 							}
 							break;
 						}
@@ -178,12 +176,12 @@ namespace MiNET.LevelDB.Tests
 			var stream = new MemoryStream();
 
 			{
-				Span<byte> bytes = Manifest.WriteVersion(version);
+				Span<byte> bytes = Manifest.EncodeVersion(version);
 
 				Log.Debug($"Manifest (length:{bytes.Length}):\n{bytes.ToArray().HexDump()}");
 
 				var writer = new LogWriter(stream);
-				writer.EncodeBlocks(bytes);
+				writer.WriteData(bytes);
 				Log.Debug($"Manifest (length:{stream.Position}):\n{stream.ToArray().HexDump()}");
 			}
 
@@ -192,12 +190,10 @@ namespace MiNET.LevelDB.Tests
 				using var verify = new LogReader(stream);
 				while (true)
 				{
-					var record = verify.ReadRecord();
-					if (record.LogRecordType == LogRecordType.Eof)
-					{
-						break;
-					}
-					Log.Debug($"Data {record.LogRecordType}:\n{record.Data.HexDump()}");
+					ReadOnlySpan<byte> data = verify.ReadData();
+					if (verify.Eof) break;
+
+					Log.Debug($"Data:\n{data.HexDump()}");
 				}
 
 				stream.Position = 0;
@@ -254,7 +250,7 @@ namespace MiNET.LevelDB.Tests
 
 			var stream = new MemoryStream();
 			LogWriter writer = new LogWriter(stream);
-			writer.EncodeBlocks(stream, result);
+			writer.WriteData(result);
 			Assert.Less(0, stream.Length);
 			stream.Position = 0;
 

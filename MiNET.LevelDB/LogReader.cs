@@ -1,3 +1,28 @@
+﻿#region LICENSE
+
+// The contents of this file are subject to the Common Public Attribution
+// License Version 1.0. (the "License"); you may not use this file except in
+// compliance with the License. You may obtain a copy of the License at
+// https://github.com/NiclasOlofsson/MiNET/blob/master/LICENSE.
+// The License is based on the Mozilla Public License Version 1.1, but Sections 14
+// and 15 have been added to cover use of software over a computer network and
+// provide for limited attribution for the Original Developer. In addition, Exhibit A has
+// been modified to be consistent with Exhibit B.
+// 
+// Software distributed under the License is distributed on an "AS IS" basis,
+// WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License for
+// the specific language governing rights and limitations under the License.
+// 
+// The Original Code is MiNET.
+// 
+// The Original Developer is the Initial Developer.  The Initial Developer of
+// the Original Code is Niclas Olofsson.
+// 
+// All portions of the code written by Niclas Olofsson are Copyright (c) 2014-2020 Niclas Olofsson.
+// All Rights Reserved.
+
+#endregion
+
 using System;
 using System.IO;
 using log4net;
@@ -13,6 +38,8 @@ namespace MiNET.LevelDB
 		const int HeaderSize = 4 + 2 + 1; // Max block size need to include space for header.
 
 		private Stream _stream; // global log stream
+
+		public bool Eof { get; set; }
 
 		// For testing
 		internal LogReader(Stream stream = null)
@@ -41,12 +68,18 @@ namespace MiNET.LevelDB
 			Dispose();
 		}
 
+		public void Dispose()
+		{
+			_stream?.Dispose();
+		}
+
 		protected void Reset()
 		{
 			_stream.Position = 0;
+			Eof = false;
 		}
 
-		public Record ReadRecord()
+		public ReadOnlySpan<byte> ReadData()
 		{
 			Record lastRecord = Record.Undefined;
 
@@ -56,11 +89,11 @@ namespace MiNET.LevelDB
 
 				while (true)
 				{
-					Record record = ReadFragments(stream);
+					Record record = ReadNextRecord(stream);
 
 					if (record.LogRecordType == LogRecordType.BadRecord)
 					{
-						if (Log.IsDebugEnabled) Log.Debug($"Reached end of block {record.ToString()}");
+						//if (Log.IsDebugEnabled) Log.Debug($"Reached end of block {record.ToString()}");
 						break;
 					}
 
@@ -72,7 +105,7 @@ namespace MiNET.LevelDB
 
 					if (record.LogRecordType == LogRecordType.First)
 					{
-						Log.Debug("Read first part of full record fragment");
+						//Log.Debug("Read first part of full record fragment");
 						lastRecord = record;
 						continue;
 					}
@@ -88,11 +121,11 @@ namespace MiNET.LevelDB
 
 						if (record.LogRecordType == LogRecordType.Middle)
 						{
-							Log.Debug("Read middle part of full record fragment");
+							//if (Log.IsDebugEnabled) Log.Debug("Read middle part of full record fragment");
 							continue;
 						}
 
-						Log.Debug("Assembled all parts of fragment to full record");
+						//if (Log.IsDebugEnabled) Log.Debug("Assembled all parts of fragment to full record");
 						record = lastRecord;
 						record.LogRecordType = LogRecordType.Full;
 					}
@@ -106,14 +139,14 @@ namespace MiNET.LevelDB
 						continue;
 					}
 
-					return record;
+					return record.Data;
 				}
 			}
-
-			return new Record {LogRecordType = LogRecordType.Eof};
+			Eof = true;
+			return null;
 		}
 
-		private Record ReadFragments(Stream stream)
+		private Record ReadNextRecord(Stream stream)
 		{
 			// Blocks may be padded if size left is less than the header
 			int sizeLeft = (int) (BlockSize - stream.Position % BlockSize);
@@ -152,17 +185,12 @@ namespace MiNET.LevelDB
 
 			return rec;
 		}
-
-		public void Dispose()
-		{
-			_stream?.Dispose();
-		}
 	}
 
 	public enum OperationType
 	{
 		Delete = 0,
-		Put = 1
+		Value = 1
 	}
 
 	public enum LogRecordType

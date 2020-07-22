@@ -27,7 +27,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using log4net;
 using MiNET.LevelDB.Utils;
 using Newtonsoft.Json;
@@ -60,6 +59,7 @@ namespace MiNET.LevelDB
 			if (CurrentVersion != null) return;
 
 			CurrentVersion = ReadVersionEdit(reader);
+			Log.Debug($"Loading manifest");
 			Print(CurrentVersion);
 
 			foreach (var level in CurrentVersion.NewFiles) // Search all levels for file with matching index
@@ -84,8 +84,8 @@ namespace MiNET.LevelDB
 		{
 			if (CurrentVersion == null) return;
 
-			var bytes = WriteVersion(CurrentVersion);
-			writer.EncodeBlocks(bytes);
+			var bytes = EncodeVersion(CurrentVersion);
+			writer.WriteData(bytes);
 		}
 
 		public ResultStatus Get(Span<byte> key)
@@ -97,18 +97,19 @@ namespace MiNET.LevelDB
 			{
 				foreach (FileMetadata tbl in level.Value)
 				{
-					var smallestKey = tbl.SmallestKey.AsSpan().UserKey();
-					var largestKey = tbl.LargestKey.AsSpan().UserKey();
+					Log.Debug($"Checking table {tbl.FileNumber} for key: {key.ToHexString()}");
+					Span<byte> smallestKey = tbl.SmallestKey.AsSpan().UserKey();
+					Span<byte> largestKey = tbl.LargestKey.AsSpan().UserKey();
 					//if (smallestKey.Length == 0 || largestKey.Length == 0) continue;
 
 					if (_comparator.Compare(key, smallestKey) >= 0 && _comparator.Compare(key, largestKey) <= 0)
 					{
-						if (Log.IsDebugEnabled) Log.Debug($"Found table file for key in level {level.Key} in file={tbl.FileNumber}");
+						if (Log.IsDebugEnabled) Log.Debug($"Found table file for key in level {level.Key} in file={tbl.FileNumber}, Smallest:{tbl.SmallestKey.ToHexString()}, Largest:{tbl.LargestKey.ToHexString()}");
 
 						Table tableReader = tbl.Table;
 						if (tableReader == null)
 						{
-							FileInfo f = new FileInfo(Path.Combine(_baseDirectory.FullName, $"{tbl.FileNumber:000000}.ldb"));
+							var f = new FileInfo(Path.Combine(_baseDirectory.FullName, $"{tbl.FileNumber:000000}.ldb"));
 							if (!f.Exists) throw new Exception($"Could not find table {f.FullName}");
 							tableReader = new Table(f);
 							tbl.Table = tableReader;
@@ -119,6 +120,8 @@ namespace MiNET.LevelDB
 					}
 				}
 			}
+
+			Log.Debug($"Found no table for key: {key.ToHexString()}");
 
 			return ResultStatus.NotFound;
 		}
@@ -131,21 +134,21 @@ namespace MiNET.LevelDB
 			ulong? nextFileNumber = null;
 			ulong? lastSequenceNumber = null;
 
-			VersionEdit finalVersion = new VersionEdit();
+			var finalVersion = new VersionEdit();
 
 			while (true)
 			{
-				Record record = logReader.ReadRecord();
+				ReadOnlySpan<byte> data = logReader.ReadData();
 
-				if (record.LogRecordType != LogRecordType.Full) break;
+				if (logReader.Eof) break;
 
-				var reader = new SpanReader(record.Data);
+				var reader = new SpanReader(data);
 
-				VersionEdit versionEdit = new VersionEdit();
+				var versionEdit = new VersionEdit();
 
 				while (!reader.Eof)
 				{
-					LogTagType logTag = (LogTagType) reader.ReadVarLong();
+					var logTag = (LogTagType) reader.ReadVarLong();
 					switch (logTag)
 					{
 						case LogTagType.Comparator:
@@ -190,10 +193,10 @@ namespace MiNET.LevelDB
 							int level = (int) reader.ReadVarLong();
 							ulong fileNumber = reader.ReadVarLong();
 							ulong fileSize = reader.ReadVarLong();
-							var smallest = reader.ReadLengthPrefixedBytes();
-							var largest = reader.ReadLengthPrefixedBytes();
+							ReadOnlySpan<byte> smallest = reader.ReadLengthPrefixedBytes();
+							ReadOnlySpan<byte> largest = reader.ReadLengthPrefixedBytes();
 
-							FileMetadata fileMetadata = new FileMetadata();
+							var fileMetadata = new FileMetadata();
 							fileMetadata.FileNumber = fileNumber;
 							fileMetadata.FileSize = fileSize;
 							fileMetadata.SmallestKey = smallest.ToArray();
@@ -228,15 +231,15 @@ namespace MiNET.LevelDB
 			}
 
 			// Clean files
-			List<ulong> deletedFiles = new List<ulong>();
+			var deletedFiles = new List<ulong>();
 			foreach (var versionDeletedFile in finalVersion.DeletedFiles.Values)
 			{
 				deletedFiles.AddRange(versionDeletedFile);
 			}
 
-			foreach (var levelKvp in finalVersion.NewFiles)
+			foreach (KeyValuePair<int, List<FileMetadata>> levelKvp in finalVersion.NewFiles)
 			{
-				foreach (var newFile in levelKvp.Value.ToArray())
+				foreach (FileMetadata newFile in levelKvp.Value.ToArray())
 				{
 					if (deletedFiles.Contains(newFile.FileNumber)) levelKvp.Value.Remove(newFile);
 				}
@@ -252,7 +255,7 @@ namespace MiNET.LevelDB
 			return finalVersion;
 		}
 
-		public static Span<byte> WriteVersion(VersionEdit version)
+		public static Span<byte> EncodeVersion(VersionEdit version)
 		{
 			var array = new byte[4096];
 			var buffer = new Span<byte>(array);
@@ -295,7 +298,7 @@ namespace MiNET.LevelDB
 				{
 					writer.WriteVarLong((ulong) LogTagType.CompactPointer);
 					writer.WriteVarLong((ulong) pointer.Key);
-					writer.WriteWithLen(pointer.Value);
+					writer.WriteLengthPrefixed(pointer.Value);
 				}
 			}
 			//	case Manifest.LogTagType.DeletedFile:
@@ -327,9 +330,9 @@ namespace MiNET.LevelDB
 						//ulong fileSize = reader.ReadVarLong();
 						writer.WriteVarLong((ulong) fileMeta.FileSize);
 						//var smallest = reader.ReadLengthPrefixedBytes();
-						writer.WriteWithLen(fileMeta.SmallestKey);
+						writer.WriteLengthPrefixed(fileMeta.SmallestKey);
 						//var largest = reader.ReadLengthPrefixedBytes();
-						writer.WriteWithLen(fileMeta.LargestKey);
+						writer.WriteLengthPrefixed(fileMeta.LargestKey);
 					}
 				}
 			}
@@ -352,7 +355,7 @@ namespace MiNET.LevelDB
 			};
 
 			string result = JsonConvert.SerializeObject(obj, jsonSerializerSettings);
-			Log.Debug($"{result}");
+			Log.Debug($"\n{result}");
 		}
 
 		public class ByteArrayConverter : JsonConverter
@@ -406,8 +409,13 @@ namespace MiNET.LevelDB
 			PrevLogNumber = 9
 		}
 
+		private bool _disposed = false;
+
 		public void Close()
 		{
+			if (_disposed) return;
+			_disposed = true;
+
 			var tableFiles = CurrentVersion.NewFiles;
 			CurrentVersion = null;
 			foreach (KeyValuePair<int, List<FileMetadata>> level in tableFiles) // Search all levels for file with matching index

@@ -1,4 +1,29 @@
-﻿using System;
+﻿#region LICENSE
+
+// The contents of this file are subject to the Common Public Attribution
+// License Version 1.0. (the "License"); you may not use this file except in
+// compliance with the License. You may obtain a copy of the License at
+// https://github.com/NiclasOlofsson/MiNET/blob/master/LICENSE.
+// The License is based on the Mozilla Public License Version 1.1, but Sections 14
+// and 15 have been added to cover use of software over a computer network and
+// provide for limited attribution for the Original Developer. In addition, Exhibit A has
+// been modified to be consistent with Exhibit B.
+// 
+// Software distributed under the License is distributed on an "AS IS" basis,
+// WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License for
+// the specific language governing rights and limitations under the License.
+// 
+// The Original Code is MiNET.
+// 
+// The Original Developer is the Initial Developer.  The Initial Developer of
+// the Original Code is Niclas Olofsson.
+// 
+// All portions of the code written by Niclas Olofsson are Copyright (c) 2014-2020 Niclas Olofsson.
+// All Rights Reserved.
+
+#endregion
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using log4net;
@@ -10,21 +35,38 @@ namespace MiNET.LevelDB
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(MemCache));
 
-		internal Dictionary<byte[], ResultCacheEntry> _resultCache;
+		internal Dictionary<byte[], ResultCacheEntry> _resultCache = new Dictionary<byte[], ResultCacheEntry>();
 		private BytewiseComparator _comparator = new BytewiseComparator();
 
 		public MemCache()
 		{
 		}
 
+		public ulong GetEstimatedSize()
+		{
+			ulong size = 0;
+			foreach (KeyValuePair<byte[], ResultCacheEntry> entry in _resultCache.OrderBy(kvp => kvp.Key, new BytewiseComparator()).ThenBy(kvp => kvp.Value.Sequence))
+			{
+				if (entry.Value.ResultState != ResultState.Exist && entry.Value.ResultState != ResultState.Deleted) continue;
+
+				byte[] key = entry.Key;
+				byte[] data = entry.Value.Data ?? new byte[0];
+
+				size += (ulong) key.Length;
+				size += (ulong) data.Length;
+			}
+
+			return size;
+		}
+
 		public void Write(LogWriter writer)
 		{
 			var groups = _resultCache.GroupBy(kvp => kvp.Value.Sequence);
-			foreach (var group in groups)
+			foreach (IGrouping<long, KeyValuePair<byte[], ResultCacheEntry>> group in groups)
 			{
-				var operations = group.ToArray();
-				var batch = EncodeBatch(operations);
-				writer.EncodeBlocks(batch);
+				KeyValuePair<byte[], ResultCacheEntry>[] operations = group.ToArray();
+				ReadOnlySpan<byte> batch = EncodeBatch(operations);
+				writer.WriteData(batch);
 			}
 		}
 
@@ -35,7 +77,7 @@ namespace MiNET.LevelDB
 			long maxSize = 0;
 			maxSize += 8; // sequence
 			maxSize += 4 * operations.Length; // count
-			foreach (var entry in operations)
+			foreach (KeyValuePair<byte[], ResultCacheEntry> entry in operations)
 			{
 				maxSize += 1; // op code
 				maxSize += 10; // varint max
@@ -52,73 +94,46 @@ namespace MiNET.LevelDB
 			var writer = new SpanWriter(data);
 
 			// write sequence
-			writer.Write(operations.First().Value.Sequence);
+			writer.Write((ulong) operations.First().Value.Sequence);
 			// write operations count
-			writer.Write((int) operations.Length);
+			writer.Write((uint) operations.Length);
 
-			foreach (var operation in operations)
+			foreach (KeyValuePair<byte[], ResultCacheEntry> operation in operations)
 			{
-				var key = operation.Key;
-				var entry = operation.Value;
+				byte[] key = operation.Key;
+				ResultCacheEntry entry = operation.Value;
 				// write op type (byte)
-				writer.Write(entry.ResultState == ResultState.Exist ? (byte) OperationType.Put : (byte) OperationType.Delete);
-				// write key len (varint)
-				writer.WriteVarLong((ulong) key.Length);
+				writer.Write(entry.ResultState == ResultState.Exist ? (byte) OperationType.Value : (byte) OperationType.Delete);
 				// write key
-				writer.Write(key);
+				writer.WriteLengthPrefixed(key);
 
 				if (entry.ResultState == ResultState.Exist)
 				{
-					// write data len (varint)
-					writer.WriteVarLong((ulong) entry.Data.Length);
 					// write data
-					writer.Write(entry.Data);
+					writer.WriteLengthPrefixed(entry.Data);
 				}
 			}
 
 			return data.Slice(0, writer.Position);
 		}
 
-		public class ByteArrayComparer : IEqualityComparer<byte[]>
-		{
-			public bool Equals(byte[] left, byte[] right)
-			{
-				if (left == null || right == null)
-				{
-					return left == right;
-				}
-				return left.SequenceEqual(right);
-			}
-
-			public int GetHashCode(byte[] key)
-			{
-				if (key == null)
-					throw new ArgumentNullException("key");
-				return key.Sum(b => b);
-			}
-		}
-
-
 		internal void Load(LogReader reader)
 		{
 			_resultCache = new Dictionary<byte[], ResultCacheEntry>(new ByteArrayComparer());
 
 			int entriesCount = 0;
+
 			while (true)
 			{
-				Record record = reader.ReadRecord();
+				ReadOnlySpan<byte> data = reader.ReadData();
 
-				if (record.LogRecordType == LogRecordType.Eof)
+				if (reader.Eof)
 				{
-					if (Log.IsDebugEnabled) Log.Debug($"Reached end of records: {record.ToString()}");
+					if (Log.IsDebugEnabled) Log.Debug($"Reached end of stream. No more records to read.");
 					break;
 				}
 
-				if (record.LogRecordType != LogRecordType.Full) throw new Exception($"Invalid log file. Didn't find any records. Got record of type {record.LogRecordType}");
-
-				if (record.Length != (ulong) record.Data.Length) throw new Exception($"Invalid record state. Length not matching");
-
-				var entries = DecodeBatch(record.Data);
+				var entries = DecodeBatch(data);
 				entriesCount += entries.Count;
 				foreach (KeyValuePair<byte[], ResultCacheEntry> entry in entries.OrderBy(kvp => kvp.Value.Sequence))
 				{
@@ -134,10 +149,10 @@ namespace MiNET.LevelDB
 
 		private List<KeyValuePair<byte[], ResultCacheEntry>> DecodeBatch(ReadOnlySpan<byte> data)
 		{
-			SpanReader batchReader = new SpanReader(data);
+			var batchReader = new SpanReader(data);
 
-			var sequenceNumber = batchReader.ReadInt64();
-			var operationCount = batchReader.ReadInt32();
+			long sequenceNumber = (long) batchReader.ReadUInt64();
+			int operationCount = (int) batchReader.ReadUInt32();
 
 			var result = new List<KeyValuePair<byte[], ResultCacheEntry>>(operationCount);
 
@@ -145,14 +160,11 @@ namespace MiNET.LevelDB
 			{
 				byte operationCode = batchReader.ReadByte();
 
-				var keyLength = batchReader.ReadVarLong();
-				var currentKey = batchReader.Read(keyLength);
+				ReadOnlySpan<byte> currentKey = batchReader.ReadLengthPrefixedBytes();
 
-				if (operationCode == (int) OperationType.Put) // Put
+				if (operationCode == (int) OperationType.Value) // Put
 				{
-					ulong valueLength = batchReader.ReadVarLong();
-
-					var currentVal = batchReader.Read(valueLength);
+					ReadOnlySpan<byte> currentVal = batchReader.ReadLengthPrefixedBytes();
 					result.Add(new KeyValuePair<byte[], ResultCacheEntry>(currentKey.ToArray(), new ResultCacheEntry
 					{
 						Sequence = sequenceNumber,
@@ -168,10 +180,6 @@ namespace MiNET.LevelDB
 						Sequence = sequenceNumber,
 						ResultState = ResultState.Deleted
 					}));
-				}
-				else
-				{
-					// unknown recType
 				}
 			}
 

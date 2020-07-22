@@ -64,7 +64,7 @@ namespace MiNET.LevelDB.Tests
 			{
 				db.Open();
 
-				Random random = new Random();
+				var random = new Random();
 				for (int i = 0; i < 5_000; i++)
 				{
 					byte[] key = FillArrayWithRandomBytes(random.Next(10, 16));

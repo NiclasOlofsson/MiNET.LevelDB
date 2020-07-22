@@ -60,6 +60,7 @@ namespace MiNET.LevelDB
 		private static readonly ILog Log = LogManager.GetLogger(typeof(Database));
 		private Manifest _manifest;
 		private MemCache _newMemCache;
+		private LogWriter _log;
 		private Statistics _statistics = new Statistics();
 
 		public DirectoryInfo Directory { get; private set; }
@@ -82,7 +83,25 @@ namespace MiNET.LevelDB
 			if (_manifest == null) throw new InvalidOperationException("No manifest for database. Did you open it?");
 			if (_newMemCache == null) throw new InvalidOperationException("No current memory cache for database. Did you open it?");
 
+
+			ulong sequenceNumber = _manifest.CurrentVersion.LastSequenceNumber++ ?? 0; //TODO: Make threadsafe!
+
+			var batch = new WriteBatch
+			{
+				Sequence = sequenceNumber,
+			};
+			batch.Operations.Add(new BatchOperation()
+			{
+				Key = key.ToArray(),
+				Data = value.ToArray(),
+				ResultState = ResultState.Exist
+			});
+
+			// Write to LOG here.
+			_log?.WriteData(batch.EncodeBatch());
 			_newMemCache.Put(key, value);
+
+			//CompactMemCache();
 		}
 
 		public byte[] Get(Span<byte> key)
@@ -153,7 +172,7 @@ namespace MiNET.LevelDB
 					LogNumber = 1,
 					PreviousLogNumber = 0,
 					NextFileNumber = 2,
-					LastSequenceNumber = 0
+					LastSequenceNumber = 1
 				};
 				string filename = $"MANIFEST-000001";
 				using var writer = new LogWriter(new FileInfo($@"{Path.Combine(Directory.FullName, filename)}"));
@@ -172,13 +191,7 @@ namespace MiNET.LevelDB
 
 			// Read Manifest into memory
 
-			string manifestFilename;
-			using (StreamReader currentStream = File.OpenText($@"{Path.Combine(Directory.FullName, "CURRENT")}"))
-			{
-				manifestFilename = currentStream.ReadLine();
-				currentStream.Close();
-			}
-
+			string manifestFilename = GetCurrentManifestFile();
 			Log.Debug($"Reading manifest from {Path.Combine(Directory.FullName, manifestFilename)}");
 			using (var reader = new LogReader(new FileInfo($@"{Path.Combine(Directory.FullName, manifestFilename)}")))
 			{
@@ -187,11 +200,14 @@ namespace MiNET.LevelDB
 			}
 
 			// Read current log
-			var logFile = new FileInfo(Path.Combine(Directory.FullName, $"{_manifest.CurrentVersion.LogNumber:000000}.log"));
+			var logFile = new FileInfo(Path.Combine(Directory.FullName, _manifest.CurrentVersion.GetLogFileName()));
 			using (var reader = new LogReader(logFile))
 			{
 				_newMemCache = new MemCache();
 				_newMemCache.Load(reader);
+				_log = new LogWriter(logFile);
+
+				CompactMemCache(true);
 			}
 		}
 
@@ -202,51 +218,91 @@ namespace MiNET.LevelDB
 				var memCache = _newMemCache;
 				_newMemCache = null;
 
-				if (_manifest != null)
-				{
-					//TODO: Save of log should happen continuous (async) when doing Put() operations.
-					using var logWriter = new LogWriter(new FileInfo(Path.Combine(Directory.FullName, $"{(_manifest.CurrentVersion.LogNumber ?? 0):000000}.log")));
-					memCache.Write(logWriter);
-				}
+				//if (_manifest != null)
+				//{
+				//	//TODO: Save of log should happen continuous (async) when doing Put() operations.
+				//	using var logWriter = new LogWriter(new FileInfo(Path.Combine(Directory.FullName, $"{(_manifest.CurrentVersion.LogNumber ?? 0):000000}.log")));
+				//	memCache.Write(logWriter);
+				//}
 			}
-
-			if (_manifest != null)
-			{
-				var temp = _manifest;
-				_manifest = null;
-				temp.Close();
-			}
+			_log?.Close();
+			_log = null;
+			_manifest?.Close();
+			_manifest = null;
 		}
 
-		/// <summary>
-		///     Save contents of memcache to a new table file
-		/// </summary>
-		/// <param name="manifest"></param>
-		/// <param name="memCache"></param>
-		public void CompactMemCache()
+		public bool IsClosed()
 		{
+			throw new NotImplementedException();
+		}
+
+		public void Dispose()
+		{
+			Close();
+		}
+
+		internal void CompactMemCache(bool force = false)
+		{
+			if (!force && _newMemCache.GetEstimatedSize() < 4000000L) return; // 4Mb
+
+			if (_newMemCache._resultCache.Count == 0) return;
+
+			Log.Warn($"Compact kicking in");
 			// Lock memcache for write
 
 			// Write prev memcache to a level 0 table
-			ulong fileNumber = _manifest.CurrentVersion.NextFileNumber++ ?? 0;
+
+			VersionEdit currentVersion = _manifest.CurrentVersion;
+			ulong fileNumber = currentVersion.GetNewFileNumber();
+
 			var tableFileInfo = new FileInfo(Path.Combine(Directory.FullName, $"{fileNumber:000000}.ldb"));
 			FileMetadata meta = WriteLevel0Table(_newMemCache, tableFileInfo);
-
-			// Add new file to current version
+			var newTable = new Table(tableFileInfo);
 			meta.FileNumber = fileNumber;
-
-			List<FileMetadata> newFiles = _manifest.CurrentVersion.NewFiles[0] ?? new List<FileMetadata>();
-			newFiles.Add(meta);
-			_manifest.CurrentVersion.NewFiles[0] = newFiles;
+			meta.Table = newTable;
 
 			// Update version data and commit new manifest (save)
 
-			// replace current memcache with new version.
+			var newVersion = new VersionEdit(currentVersion);
+			newVersion.LogNumber++;
+			newVersion.PreviousLogNumber = 0; // Not used anymore
+			newVersion.AddNewFile(0, meta);
+
+			Manifest.Print(newVersion);
+
+			// replace current memcache with new version. Should probably do this after manifest is confirmed written ok.
+			var newCache = new MemCache();
+			_newMemCache = newCache;
+			var logFile = new FileInfo(Path.Combine(Directory.FullName, _manifest.CurrentVersion.GetLogFileName()));
+			_log = new LogWriter(logFile);
+
+			_manifest.CurrentVersion = newVersion;
+
+			string manifestFileToDelete = GetCurrentManifestFile();
+			string manifestFilename = $"MANIFEST-{newVersion.GetNewFileNumber():000000}";
+			using (var writer = new LogWriter(new FileInfo($@"{Path.Combine(Directory.FullName, manifestFilename)}")))
+			{
+				_manifest.Save(writer);
+			}
+
+			using (StreamWriter currentStream = File.CreateText($@"{Path.Combine(Directory.FullName, "CURRENT")}"))
+			{
+				currentStream.WriteLine(manifestFilename);
+				currentStream.Close();
+			}
+
+			File.Delete($@"{Path.Combine(Directory.FullName, manifestFileToDelete)}");
 
 			// unlock
 		}
 
-		public FileMetadata WriteLevel0Table(MemCache memCache, FileInfo tableFileInfo)
+		private string GetCurrentManifestFile()
+		{
+			using StreamReader currentStream = File.OpenText($@"{Path.Combine(Directory.FullName, "CURRENT")}");
+			return currentStream.ReadLine();
+		}
+
+		internal FileMetadata WriteLevel0Table(MemCache memCache, FileInfo tableFileInfo)
 		{
 			using FileStream fileStream = File.Create(tableFileInfo.FullName);
 			var creator = new TableCreator(fileStream);
@@ -258,7 +314,10 @@ namespace MiNET.LevelDB
 			{
 				if (entry.Value.ResultState != ResultState.Exist && entry.Value.ResultState != ResultState.Deleted) continue;
 
-				byte[] key = entry.Key;
+				byte[] opAndSeq = BitConverter.GetBytes((ulong) entry.Value.Sequence);
+				opAndSeq[0] = (byte) (entry.Value.ResultState == ResultState.Exist ? 1 : 0);
+
+				byte[] key = entry.Key.Concat(opAndSeq).ToArray();
 				byte[] data = entry.Value.Data;
 
 				smallestKey ??= key;
@@ -272,9 +331,7 @@ namespace MiNET.LevelDB
 						Log.Debug($"Key:{key.ToHexString()} {entry.Value.Sequence}, {entry.Value.ResultState == ResultState.Exist}");
 				}
 
-				byte[] opAndSeq = BitConverter.GetBytes((ulong) entry.Value.Sequence);
-				opAndSeq[0] = (byte) (entry.Value.ResultState == ResultState.Exist ? 1 : 0);
-				creator.Add(key.Concat(opAndSeq).ToArray(), data);
+				creator.Add(key, data);
 			}
 
 			creator.Finish();
@@ -293,17 +350,67 @@ namespace MiNET.LevelDB
 				Table = null
 			};
 		}
+	}
 
-		public bool IsClosed()
-		{
-			throw new NotImplementedException();
-		}
+	internal class BatchOperation
+	{
+		public byte[] Key { get; set; }
+		public byte[] Data { get; set; }
+		public ResultState ResultState { get; set; } = ResultState.Undefined;
+	}
 
-		public void Dispose()
+	internal class WriteBatch
+	{
+		public ulong Sequence { get; set; }
+		public List<BatchOperation> Operations = new List<BatchOperation>();
+
+		internal ReadOnlySpan<byte> EncodeBatch()
 		{
-			Close();
+			if (Operations.Count == 0) throw new ArgumentException("Zero size batch", nameof(Operations));
+
+			long maxSize = 0;
+			maxSize += 8; // sequence
+			maxSize += 4 * Operations.Count; // count
+			foreach (BatchOperation entry in Operations)
+			{
+				maxSize += 1; // op code
+				maxSize += 10; // varint max
+				maxSize += entry.Key.Length;
+				if (entry.ResultState == ResultState.Exist)
+				{
+					maxSize += 10; // varint max
+					maxSize += entry.Data?.Length ?? 0;
+				}
+			}
+
+			Span<byte> data = new byte[maxSize]; // big enough to contain all data regardless of size
+
+			var writer = new SpanWriter(data);
+
+			// write sequence
+			writer.Write((ulong) Sequence);
+			// write operations count
+			writer.Write((uint) Operations.Count);
+
+			foreach (var operation in Operations)
+			{
+				byte[] key = operation.Key;
+				// write op type (byte)
+				writer.Write(operation.ResultState == ResultState.Exist ? (byte) OperationType.Value : (byte) OperationType.Delete);
+				// write key
+				writer.WriteLengthPrefixed(key);
+
+				if (operation.ResultState == ResultState.Exist)
+				{
+					// write data
+					writer.WriteLengthPrefixed(operation.Data);
+				}
+			}
+
+			return data.Slice(0, writer.Position);
 		}
 	}
+
 
 	public class Statistics
 	{

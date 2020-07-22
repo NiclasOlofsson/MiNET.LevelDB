@@ -1,0 +1,19 @@
+
+Files:
+CURRENT
+Contains name of current MANIFEST file
+
+MANIFEST-000000
+Contains all pointers to all active and deleted files. Have pointer to current log file.
+
+000000.log
+Transaction log, continously updated. Has it's own format
+
+000000.ldb
+Table files.
+
+
+
+
+
+

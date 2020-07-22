@@ -70,7 +70,7 @@ namespace MiNET.LevelDB.Tests
 		[Test]
 		public void LevelDbCreateFromDirectory()
 		{
-			DirectoryInfo tempDir = new DirectoryInfo(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
+			var tempDir = new DirectoryInfo(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
 			var data = new byte[] {0, 1, 2, 3};
 			byte[] key = testKeys.Last();
 
@@ -89,11 +89,11 @@ namespace MiNET.LevelDB.Tests
 
 			// Verify that we written the necessary files to the db directory
 			// 000001.log
-			Directory.Exists(Path.Combine(tempDir.FullName, "000001.log"));
+			Assert.True(File.Exists(Path.Combine(tempDir.FullName, "000001.log")), "Missing log");
 			// CURRENT 
-			Directory.Exists(Path.Combine(tempDir.FullName, "CURRENT"));
+			Assert.True(File.Exists(Path.Combine(tempDir.FullName, "CURRENT")), "Missing CURRENT");
 			// MANIFEST-000001
-			Directory.Exists(Path.Combine(tempDir.FullName, "MANIFEST-000001"));
+			Assert.True(File.Exists(Path.Combine(tempDir.FullName, "MANIFEST-000001")), "Missing manifest");
 
 			// Later, we also need verify table files.
 			// however, not yet implemented conversion from log -> table
@@ -103,6 +103,23 @@ namespace MiNET.LevelDB.Tests
 			using (var db = new Database(tempDir))
 			{
 				db.Open();
+				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "000002.ldb")), "Missing level 0 table file");
+				Assert.False(File.Exists(Path.Combine(tempDir.FullName, "MANIFEST-000001")), "Should have removed old manifest");
+				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "MANIFEST-000003")), "Missing new manifest");
+
+				byte[] result = db.Get(key);
+				Assert.AreEqual(data, result);
+
+				db.Close();
+			}
+
+			// Try again to make sure nothing happens on close.
+			using (var db = new Database(tempDir))
+			{
+				db.Open();
+				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "000002.ldb")), "Missing level 0 table file");
+				Assert.False(File.Exists(Path.Combine(tempDir.FullName, "MANIFEST-000001")), "Should have removed old manifest");
+				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "MANIFEST-000003")), "Missing new manifest");
 
 				byte[] result = db.Get(key);
 				Assert.AreEqual(data, result);

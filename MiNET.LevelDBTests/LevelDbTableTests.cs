@@ -60,75 +60,8 @@ namespace MiNET.LevelDB.Tests
 			Assert.Fail("Found no entry");
 		}
 
-		//[Test]
-		//public void WriteToNewTableTest()
-		//{
-		//	using var logReader = new LogReader(new FileInfo(@"TestWorld\000047.log"));
-		//	var memCache = new MemCache();
-		//	memCache.Load(logReader);
-
-		//	var newFileInfo = new FileInfo(Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".ldb"));
-		//	using FileStream stream = File.Create(newFileInfo.FullName);
-		//	var creator = new TableCreator(stream);
-
-		//	foreach (KeyValuePair<byte[], MemCache.ResultCacheEntry> entry in memCache._resultCache.OrderBy(kvp => kvp.Key, new BytewiseComparator()).ThenBy(kvp => kvp.Value.Sequence))
-		//	{
-		//		if (entry.Value.ResultState != ResultState.Exist && entry.Value.ResultState != ResultState.Deleted) continue;
-
-		//		byte[] key = entry.Key;
-		//		byte[] data = entry.Value.Data;
-
-		//		if (entry.Value.ResultState == ResultState.Deleted)
-		//		{
-		//			Log.Warn($"Key:{key.ToHexString()} {entry.Value.Sequence}, {entry.Value.ResultState == ResultState.Exist}, size:{entry.Value.Data?.Length ?? 0}");
-		//		}
-		//		else
-		//			Log.Debug($"Key:{key.ToHexString()} {entry.Value.Sequence}, {entry.Value.ResultState == ResultState.Exist}");
-
-		//		byte[] opAndSeq = BitConverter.GetBytes((ulong) entry.Value.Sequence);
-		//		opAndSeq[0] = (byte) (entry.Value.ResultState == ResultState.Exist ? 1 : 0);
-		//		creator.Add(key.Concat(opAndSeq).ToArray(), data);
-		//	}
-		//	creator.Finish();
-		//	stream.Close();
-		//	Log.Debug($"Size distinct:{memCache._resultCache.Distinct().Count()}");
-		//	Log.Debug($"Wrote {memCache._resultCache.Count} values");
-
-
-		//	//
-		//	// Run some tests and see if we can read the table we write
-
-		//	var table = new Table(newFileInfo);
-
-		//	//Key:fe ff ff ff f1 ff ff ff 76 
-		//	ResultStatus result = table.Get(new byte[] {0xfe, 0xff, 0xff, 0xff, 0xf1, 0xff, 0xff, 0xff, 0x76});
-		//	Assert.AreEqual(ResultState.Exist, result.State);
-
-		//	//Key:fa 40 ab 14 4d 96 ec 7b 62 38 f7 63
-		//	result = table.Get(new byte[] {0xfa, 0x40, 0xab, 0x14, 0x4d, 0x96, 0xec, 0x7b, 0x62, 0x38, 0xf7, 0x63});
-		//	Assert.AreEqual(ResultState.NotFound, result.State);
-
-		//	//Key:fd ff ff ff f1 ff ff ff 39  28036, False, size:0
-		//	result = table.Get(new byte[] {0xfd, 0xff, 0xff, 0xff, 0xf1, 0xff, 0xff, 0xff, 0x39});
-		//	Assert.AreEqual(ResultState.Deleted, result.State);
-
-		//	// Test ALL keys
-		//	foreach (KeyValuePair<byte[], MemCache.ResultCacheEntry> entry in memCache._resultCache.OrderBy(kvp => kvp.Key, new BytewiseComparator()))
-		//	{
-		//		if (entry.Value.ResultState != ResultState.Exist)
-		//			continue;
-
-		//		byte[] key = entry.Key;
-		//		byte[] data = entry.Value.Data;
-
-		//		result = table.Get(key);
-		//		Assert.AreEqual(ResultState.Exist, result.State);
-		//		Assert.AreEqual(data, result.Data.ToArray());
-		//	}
-		//}
-
 		[Test]
-		public void CompactMemCacheTest()
+		public void WriteLevel0TableTest()
 		{
 			using var logReader = new LogReader(new FileInfo(@"TestWorld\000047.log"));
 			var memCache = new MemCache();
@@ -137,7 +70,6 @@ namespace MiNET.LevelDB.Tests
 			var newFileInfo = new FileInfo(Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".ldb"));
 			var db = new Database(null);
 			db.WriteLevel0Table(memCache, newFileInfo);
-
 
 			var table = new Table(newFileInfo);
 

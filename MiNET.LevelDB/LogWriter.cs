@@ -1,4 +1,29 @@
-﻿using System;
+﻿#region LICENSE
+
+// The contents of this file are subject to the Common Public Attribution
+// License Version 1.0. (the "License"); you may not use this file except in
+// compliance with the License. You may obtain a copy of the License at
+// https://github.com/NiclasOlofsson/MiNET/blob/master/LICENSE.
+// The License is based on the Mozilla Public License Version 1.1, but Sections 14
+// and 15 have been added to cover use of software over a computer network and
+// provide for limited attribution for the Original Developer. In addition, Exhibit A has
+// been modified to be consistent with Exhibit B.
+// 
+// Software distributed under the License is distributed on an "AS IS" basis,
+// WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License for
+// the specific language governing rights and limitations under the License.
+// 
+// The Original Code is MiNET.
+// 
+// The Original Developer is the Initial Developer.  The Initial Developer of
+// the Original Code is Niclas Olofsson.
+// 
+// All portions of the code written by Niclas Olofsson are Copyright (c) 2014-2020 Niclas Olofsson.
+// All Rights Reserved.
+
+#endregion
+
+using System;
 using System.IO;
 using log4net;
 using MiNET.LevelDB.Utils;
@@ -28,24 +53,25 @@ namespace MiNET.LevelDB
 			_keepOpen = keepOpen;
 		}
 
-		internal void EncodeBlocks(ReadOnlySpan<byte> data)
+		internal void WriteData(ReadOnlySpan<byte> data)
 		{
 			if (_stream == null)
 			{
 				_keepOpen = false;
-				if (_file.Exists) _file.Delete();
+				//if (_file.Exists) _file.Delete();
 				_stream = _file.OpenWrite();
+				_stream.Seek(0, SeekOrigin.End);
 			}
 
-			EncodeBlocks(_stream, data);
+			WriteData(_stream, data);
 		}
 
 
-		internal void EncodeBlocks(Stream stream, ReadOnlySpan<byte> data)
+		private void WriteData(Stream stream, ReadOnlySpan<byte> data)
 		{
-			SpanReader reader = new SpanReader(data);
+			var reader = new SpanReader(data);
 
-			var currentRecordType = LogRecordType.Zero;
+			LogRecordType currentRecordType = LogRecordType.Zero;
 
 			while (!reader.Eof)
 			{
@@ -69,7 +95,7 @@ namespace MiNET.LevelDB
 						//throw new Exception($"Size left={sizeLeft}");
 						// emit empty first block
 						currentRecordType = LogRecordType.First;
-						WriteFragment(stream, currentRecordType, ReadOnlySpan<byte>.Empty);
+						WriteRecord(stream, currentRecordType, ReadOnlySpan<byte>.Empty);
 						continue;
 					}
 
@@ -103,11 +129,11 @@ namespace MiNET.LevelDB
 				}
 
 				var fragmentData = reader.Read(length);
-				WriteFragment(stream, currentRecordType, fragmentData);
+				WriteRecord(stream, currentRecordType, fragmentData);
 			}
 		}
 
-		private void WriteFragment(Stream stream, LogRecordType recordType, in ReadOnlySpan<byte> fragmentData)
+		private void WriteRecord(Stream stream, LogRecordType recordType, in ReadOnlySpan<byte> fragmentData)
 		{
 			uint crc = Crc32C.Compute((byte) recordType);
 			crc = Crc32C.Mask(Crc32C.Append(crc, fragmentData));
