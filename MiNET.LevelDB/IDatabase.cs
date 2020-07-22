@@ -205,10 +205,13 @@ namespace MiNET.LevelDB
 			{
 				_newMemCache = new MemCache();
 				_newMemCache.Load(reader);
-				_log = new LogWriter(logFile);
-
-				CompactMemCache(true);
 			}
+
+			_log = new LogWriter(logFile);
+
+			// We do this on startup. It will rotate the log files and create
+			// level 0 tables. However, we want to use into reusing the logs.
+			CompactMemCache(true);
 		}
 
 		public void Close()
