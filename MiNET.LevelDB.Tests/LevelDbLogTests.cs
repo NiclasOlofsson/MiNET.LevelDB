@@ -48,7 +48,7 @@ namespace MiNET.LevelDB.Tests
 		public DirectoryInfo GetTestDirectory()
 		{
 			var directory = new DirectoryInfo(@"TestWorld");
-			string tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+			string tempDir = Path.Combine(Path.GetTempPath(), $"LevelDB-{Guid.NewGuid().ToString()}");
 			Directory.CreateDirectory(tempDir);
 
 			FileInfo[] files = directory.GetFiles();

@@ -57,7 +57,7 @@ namespace MiNET.LevelDB.Tests
 		public DirectoryInfo GetTestDirectory()
 		{
 			var directory = new DirectoryInfo(@"TestWorld");
-			string tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+			string tempDir = Path.Combine(Path.GetTempPath(), $"LevelDB-{Guid.NewGuid().ToString()}");
 			Directory.CreateDirectory(tempDir);
 
 			FileInfo[] files = directory.GetFiles();
@@ -82,7 +82,7 @@ namespace MiNET.LevelDB.Tests
 		[Test]
 		public void LevelDbCreateFromDirectory()
 		{
-			var tempDir = new DirectoryInfo(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));
+			var tempDir = new DirectoryInfo(Path.Combine(Path.GetTempPath(), $"LevelDB-{Guid.NewGuid().ToString()}"));
 			var data = new byte[] {0, 1, 2, 3};
 			byte[] key = testKeys.Last();
 

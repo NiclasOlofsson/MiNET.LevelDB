@@ -1,28 +1,60 @@
-﻿using System;
-using System.Collections.Generic;
+﻿#region LICENSE
+
+// The contents of this file are subject to the Common Public Attribution
+// License Version 1.0. (the "License"); you may not use this file except in
+// compliance with the License. You may obtain a copy of the License at
+// https://github.com/NiclasOlofsson/MiNET/blob/master/LICENSE.
+// The License is based on the Mozilla Public License Version 1.1, but Sections 14
+// and 15 have been added to cover use of software over a computer network and
+// provide for limited attribution for the Original Developer. In addition, Exhibit A has
+// been modified to be consistent with Exhibit B.
+// 
+// Software distributed under the License is distributed on an "AS IS" basis,
+// WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License for
+// the specific language governing rights and limitations under the License.
+// 
+// The Original Code is MiNET.
+// 
+// The Original Developer is the Initial Developer.  The Initial Developer of
+// the Original Code is Niclas Olofsson.
+// 
+// All portions of the code written by Niclas Olofsson are Copyright (c) 2014-2020 Niclas Olofsson.
+// All Rights Reserved.
+
+#endregion
+
+using System;
 using System.IO;
-using System.Linq;
-using System.Reflection;
 using BenchmarkDotNet.Attributes;
-using log4net;
-using log4net.Core;
-using log4net.Repository.Hierarchy;
+using BenchmarkDotNet.Engines;
 
 namespace MiNET.LevelDB.Benchmarks
 {
-	[MemoryDiagnoser]
 	[GcServer(true)]
+	[SimpleJob(RunStrategy.Throughput), MinIterationCount(200), MaxIterationCount(2_000)]
 	public class LevelDbApiBenchmarks
 	{
+		[Params(100, 1_000, 10_000)] public int SizeOfValues;
+
+		private Database _db;
+		private byte[] _key;
+		private byte[] _value;
+
 		[GlobalSetup]
 		public void GlobalSetup()
 		{
-			Hierarchy hierarchy = (Hierarchy) LogManager.GetRepository(Assembly.GetEntryAssembly());
-			hierarchy.Root.Level = Level.Error;
-
-			_chunks = GenerateChunks(new ChunkCoordinates(0, 0), 8).OrderBy(kvp => kvp.Value).ToArray();
-			_db = new Database(new DirectoryInfo("My World.mcworld"));
+			string tempDir = Path.Combine(Path.GetTempPath(), $"LevelDB-{Guid.NewGuid().ToString()}");
+			_db = new Database(new DirectoryInfo(tempDir));
+			_db.CreateIfMissing = true;
 			_db.Open();
+		}
+
+
+		[IterationSetup]
+		public void IterationSetup()
+		{
+			_key = FillArrayWithRandomBytes(1234, 16, 10);
+			_value = FillArrayWithRandomBytes(1234, 100, SizeOfValues);
 		}
 
 		[GlobalCleanup]
@@ -31,92 +63,23 @@ namespace MiNET.LevelDB.Benchmarks
 			_db.Close();
 		}
 
-
-		private KeyValuePair<ChunkCoordinates, double>[] _chunks;
-
-		[Params(100, 1_000, 10_000, 100_000)] public int NumberOfChunks = 0;
-		private Database _db;
-
 		[Benchmark]
 		public void BedrockChunkLoadTest()
 		{
-			{
-				var db = _db;
-
-				int count = 0;
-				while (count < NumberOfChunks)
-				{
-					foreach (var pair in _chunks)
-					{
-						if (count >= NumberOfChunks) break; // ABORT!
-
-						var coordinates = pair.Key;
-						var index = BitConverter.GetBytes(coordinates.X).Concat(BitConverter.GetBytes(coordinates.Z)).ToArray();
-
-						var version = db.Get(index.Concat(new byte[] {0x76}).ToArray());
-
-						for (byte y = 0; y < 16; y++)
-						{
-							var chunk = db.Get(index.Concat(new byte[] {0x2f, y}).ToArray());
-
-							if (y == 0)
-							{
-								if (chunk != null) count++;
-							}
-
-							if (chunk == null) break;
-						}
-
-						var flatDataBytes = db.Get(index.Concat(new byte[] {0x2D}).ToArray());
-						var blockEntityBytes = db.Get(index.Concat(new byte[] {0x31}).ToArray());
-					}
-				}
-			}
+			_db.Put(_key, _value);
 		}
 
-		public Dictionary<ChunkCoordinates, double> GenerateChunks(ChunkCoordinates chunkPosition, double radius)
+
+		private static byte[] FillArrayWithRandomBytes(int seed, int size, int max)
 		{
-			Dictionary<ChunkCoordinates, double> newOrders = new Dictionary<ChunkCoordinates, double>();
-
-			double radiusSquared = Math.Pow(radius, 2);
-
-			int centerX = chunkPosition.X;
-			int centerZ = chunkPosition.Z;
-
-			for (double x = -radius; x <= radius; ++x)
+			var bytes = new byte[size];
+			var random = new Random(seed);
+			for (int i = 0; i < bytes.Length; i++)
 			{
-				for (double z = -radius; z <= radius; ++z)
-				{
-					var distance = (x * x) + (z * z);
-					if (distance > radiusSquared)
-					{
-						continue;
-					}
-					int chunkX = (int) (x + centerX);
-					int chunkZ = (int) (z + centerZ);
-					var index = new ChunkCoordinates(chunkX, chunkZ);
-					newOrders[index] = distance;
-				}
+				bytes[i] = (byte) random.Next(max);
 			}
 
-			return newOrders;
-		}
-
-		public class ChunkCoordinates
-		{
-			public ChunkCoordinates(int x, int z)
-			{
-				X = x;
-				Z = z;
-			}
-
-			public int X { get; set; }
-			public int Z { get; set; }
-
-			public override string ToString()
-			{
-				return $"{nameof(X)}: {X}, {nameof(Z)}: {Z}";
-			}
+			return bytes;
 		}
 	}
 }
