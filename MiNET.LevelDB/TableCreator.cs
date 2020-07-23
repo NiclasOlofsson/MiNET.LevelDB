@@ -91,18 +91,18 @@ namespace MiNET.LevelDB
 
 			// Compress here
 
-			byte compressionType = 0; // none
+			//byte compressionType = 0; // none
 
 			//byte compressionType = 2; // zlib
 			//memStream.WriteByte(0x87);
 			//memStream.WriteByte(0x9C);
 
-			//byte compressionType = 3; // zlib raw
-			//using var memStream = new MemoryStream();
-			//using var compStream = new DeflateStream(memStream, CompressionLevel.Optimal);
-			//compStream.Write(dataBlock);
-			//compStream.Flush();
-			//dataBlock = memStream.ToArray();
+			byte compressionType = 4; // zlib raw
+			using var memStream = new MemoryStream();
+			using var compStream = new DeflateStream(memStream, CompressionLevel.Optimal);
+			compStream.Write(dataBlock);
+			compStream.Flush();
+			dataBlock = memStream.ToArray();
 
 			uint checkCrc = Crc32C.Compute(dataBlock);
 			checkCrc = Crc32C.Mask(Crc32C.Append(checkCrc, compressionType));
