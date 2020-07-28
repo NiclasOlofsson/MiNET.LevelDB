@@ -37,6 +37,7 @@ namespace MiNET.LevelDB
 
 		internal Dictionary<byte[], ResultCacheEntry> _resultCache = new Dictionary<byte[], ResultCacheEntry>();
 		private BytewiseComparator _comparator = new BytewiseComparator();
+		private ulong _estimatedSize = 0;
 
 		public MemCache()
 		{
@@ -44,19 +45,7 @@ namespace MiNET.LevelDB
 
 		public ulong GetEstimatedSize()
 		{
-			ulong size = 0;
-			foreach (KeyValuePair<byte[], ResultCacheEntry> entry in _resultCache.OrderBy(kvp => kvp.Key, new BytewiseComparator()).ThenBy(kvp => kvp.Value.Sequence))
-			{
-				if (entry.Value.ResultState != ResultState.Exist && entry.Value.ResultState != ResultState.Deleted) continue;
-
-				byte[] key = entry.Key;
-				byte[] data = entry.Value.Data ?? new byte[0];
-
-				size += (ulong) key.Length;
-				size += (ulong) data.Length;
-			}
-
-			return size;
+			return _estimatedSize;
 		}
 
 		public void Write(LogWriter writer)
@@ -139,6 +128,7 @@ namespace MiNET.LevelDB
 				{
 					// This should overwrite older entries and only the latest operation should be saved
 					_resultCache[entry.Key] = entry.Value;
+					_estimatedSize += (ulong) (entry.Key.Length + 8 + entry.Key.Length + 10 /* varlong * 2 */);
 				}
 			}
 			Log.Debug($"Total count of entries read: {entriesCount}");
@@ -186,7 +176,7 @@ namespace MiNET.LevelDB
 			return result;
 		}
 
-		public ResultStatus Get(Span<byte> key)
+		internal ResultStatus Get(Span<byte> key)
 		{
 			if (_resultCache == null) throw new InvalidOperationException("Log not prepared for queries. Did you forget to call Open()?");
 
@@ -201,18 +191,23 @@ namespace MiNET.LevelDB
 			return ResultStatus.NotFound;
 		}
 
-		public void Put(in Span<byte> key, in Span<byte> value)
+		internal void Put(WriteBatch batch)
 		{
 			if (_resultCache == null) throw new InvalidOperationException("Log not prepared for updates. Did you forget to call Open()?");
 
-			var seq = _resultCache.Count == 0 ? 0 : _resultCache.Max(kvp => kvp.Value.Sequence) + 1; // Perhaps use DateTime.Ticks
-
-			_resultCache[key.ToArray()] = new ResultCacheEntry
+			foreach (BatchOperation operation in batch.Operations)
 			{
-				Sequence = seq,
-				Data = value.ToArray(),
-				ResultState = ResultState.Exist
-			};
+				byte[] key = operation.Key;
+				byte[] data = operation.Data;
+				_estimatedSize += (ulong) (key.Length + 8 + data.Length + 10 /* varlong * 2 */);
+
+				_resultCache[key] = new ResultCacheEntry
+				{
+					Sequence = (long) batch.Sequence,
+					Data = data,
+					ResultState = ResultState.Exist
+				};
+			}
 		}
 
 		internal class ResultCacheEntry

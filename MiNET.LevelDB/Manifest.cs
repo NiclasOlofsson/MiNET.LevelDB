@@ -71,7 +71,7 @@ namespace MiNET.LevelDB
 					Table tableReader = tbl.Table;
 					if (tableReader == null)
 					{
-						FileInfo f = new FileInfo(Path.Combine(_baseDirectory.FullName, $"{tbl.FileNumber:000000}.ldb"));
+						var f = new FileInfo(Path.Combine(_baseDirectory.FullName, $"{tbl.FileNumber:000000}.ldb"));
 						if (!f.Exists) throw new Exception($"Could not find table {f.FullName}");
 						tableReader = new Table(f);
 						tbl.Table = tableReader;
@@ -128,13 +128,7 @@ namespace MiNET.LevelDB
 
 		public static VersionEdit ReadVersionEdit(LogReader logReader)
 		{
-			string comparator = null;
-			ulong? logNumber = null;
-			ulong? previousLogNumber = null;
-			ulong? nextFileNumber = null;
-			ulong? lastSequenceNumber = null;
-
-			var finalVersion = new VersionEdit();
+			var version = new VersionEdit();
 
 			while (true)
 			{
@@ -144,7 +138,7 @@ namespace MiNET.LevelDB
 
 				var reader = new SpanReader(data);
 
-				var versionEdit = new VersionEdit();
+				//var versionEdit = new VersionEdit();
 
 				while (!reader.Eof)
 				{
@@ -153,39 +147,38 @@ namespace MiNET.LevelDB
 					{
 						case LogTagType.Comparator:
 						{
-							versionEdit.Comparator = reader.ReadLengthPrefixedString();
+							version.Comparator = reader.ReadLengthPrefixedString();
 							break;
 						}
 						case LogTagType.LogNumber:
 						{
-							versionEdit.LogNumber = reader.ReadVarLong();
+							version.LogNumber = reader.ReadVarLong();
 							break;
 						}
 						case LogTagType.NextFileNumber:
 						{
-							versionEdit.NextFileNumber = reader.ReadVarLong();
+							version.NextFileNumber = reader.ReadVarLong();
 							break;
 						}
 						case LogTagType.LastSequence:
 						{
-							versionEdit.LastSequenceNumber = reader.ReadVarLong();
+							version.LastSequenceNumber = reader.ReadVarLong();
 							break;
 						}
 						case LogTagType.CompactPointer:
 						{
 							int level = (int) reader.ReadVarLong();
 							var internalKey = reader.ReadLengthPrefixedBytes();
-							versionEdit.CompactPointers[level] = internalKey.ToArray();
+							version.CompactPointers[level] = internalKey.ToArray();
 							break;
 						}
 						case LogTagType.DeletedFile:
 						{
 							int level = (int) reader.ReadVarLong();
 							ulong fileNumber = reader.ReadVarLong();
-							if (!versionEdit.DeletedFiles.ContainsKey(level)) versionEdit.DeletedFiles[level] = new List<ulong>();
-							versionEdit.DeletedFiles[level].Add(fileNumber);
-							if (!finalVersion.DeletedFiles.ContainsKey(level)) finalVersion.DeletedFiles[level] = new List<ulong>();
-							finalVersion.DeletedFiles[level].Add(fileNumber);
+
+							if (!version.DeletedFiles.ContainsKey(level)) version.DeletedFiles[level] = new List<ulong>();
+							version.DeletedFiles[level].Add(fileNumber);
 							break;
 						}
 						case LogTagType.NewFile:
@@ -201,15 +194,13 @@ namespace MiNET.LevelDB
 							fileMetadata.FileSize = fileSize;
 							fileMetadata.SmallestKey = smallest.ToArray();
 							fileMetadata.LargestKey = largest.ToArray();
-							if (!versionEdit.NewFiles.ContainsKey(level)) versionEdit.NewFiles[level] = new List<FileMetadata>();
-							versionEdit.NewFiles[level].Add(fileMetadata);
-							if (!finalVersion.NewFiles.ContainsKey(level)) finalVersion.NewFiles[level] = new List<FileMetadata>();
-							finalVersion.NewFiles[level].Add(fileMetadata);
+							if (!version.NewFiles.ContainsKey(level)) version.NewFiles[level] = new List<FileMetadata>();
+							version.NewFiles[level].Add(fileMetadata);
 							break;
 						}
 						case LogTagType.PrevLogNumber:
 						{
-							versionEdit.PreviousLogNumber = reader.ReadVarLong();
+							version.PreviousLogNumber = reader.ReadVarLong();
 							break;
 						}
 						default:
@@ -218,26 +209,16 @@ namespace MiNET.LevelDB
 						}
 					}
 				}
-
-				versionEdit.CompactPointers = versionEdit.CompactPointers.Count == 0 ? null : versionEdit.CompactPointers;
-				versionEdit.DeletedFiles = versionEdit.DeletedFiles.Count == 0 ? null : versionEdit.DeletedFiles;
-				versionEdit.NewFiles = versionEdit.NewFiles.Count == 0 ? null : versionEdit.NewFiles;
-
-				comparator = versionEdit.Comparator ?? comparator;
-				logNumber = versionEdit.LogNumber ?? logNumber;
-				previousLogNumber = versionEdit.PreviousLogNumber ?? previousLogNumber;
-				nextFileNumber = versionEdit.NextFileNumber ?? nextFileNumber;
-				lastSequenceNumber = versionEdit.LastSequenceNumber ?? lastSequenceNumber;
 			}
 
 			// Clean files
 			var deletedFiles = new List<ulong>();
-			foreach (var versionDeletedFile in finalVersion.DeletedFiles.Values)
+			foreach (List<ulong> versionDeletedFile in version.DeletedFiles.Values)
 			{
 				deletedFiles.AddRange(versionDeletedFile);
 			}
 
-			foreach (KeyValuePair<int, List<FileMetadata>> levelKvp in finalVersion.NewFiles)
+			foreach (KeyValuePair<int, List<FileMetadata>> levelKvp in version.NewFiles)
 			{
 				foreach (FileMetadata newFile in levelKvp.Value.ToArray())
 				{
@@ -245,14 +226,10 @@ namespace MiNET.LevelDB
 				}
 			}
 
-			finalVersion.NewFiles = finalVersion.NewFiles.OrderBy(kvp => kvp.Key).ToDictionary(pair => pair.Key, pair => pair.Value);
-			finalVersion.Comparator = comparator ?? "leveldb.BytewiseComparator";
-			finalVersion.LogNumber = logNumber ?? 0;
-			finalVersion.PreviousLogNumber = previousLogNumber;
-			finalVersion.NextFileNumber = nextFileNumber ?? finalVersion.LogNumber;
-			finalVersion.LastSequenceNumber = lastSequenceNumber ?? 0;
+			version.NewFiles = version.NewFiles.OrderBy(kvp => kvp.Key).ToDictionary(pair => pair.Key, pair => pair.Value);
+			version.Comparator ??= "leveldb.BytewiseComparator";
 
-			return finalVersion;
+			return version;
 		}
 
 		public static Span<byte> EncodeVersion(VersionEdit version)
@@ -268,25 +245,21 @@ namespace MiNET.LevelDB
 				writer.Write(version.Comparator);
 			}
 			//	case Manifest.LogTagType.LogNumber:
-			if (version.LogNumber.HasValue)
 			{
 				writer.WriteVarLong((ulong) LogTagType.LogNumber);
 				writer.WriteVarLong((ulong) version.LogNumber);
 			}
 			//	case Manifest.LogTagType.PrevLogNumber:
-			if (version.PreviousLogNumber.HasValue)
 			{
 				writer.WriteVarLong((ulong) LogTagType.PrevLogNumber);
 				writer.WriteVarLong((ulong) version.PreviousLogNumber);
 			}
 			//	case Manifest.LogTagType.NextFileNumber:
-			if (version.NextFileNumber.HasValue)
 			{
 				writer.WriteVarLong((ulong) LogTagType.NextFileNumber);
 				writer.WriteVarLong((ulong) version.NextFileNumber);
 			}
 			//	case Manifest.LogTagType.LastSequence:
-			if (version.LastSequenceNumber.HasValue)
 			{
 				writer.WriteVarLong((ulong) LogTagType.LastSequence);
 				writer.WriteVarLong((ulong) version.LastSequenceNumber);

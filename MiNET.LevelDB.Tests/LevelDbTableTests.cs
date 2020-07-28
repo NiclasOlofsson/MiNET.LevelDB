@@ -85,9 +85,11 @@ namespace MiNET.LevelDB.Tests
 
 			var newFileInfo = new FileInfo(Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".ldb"));
 			var db = new Database(null);
-			db.WriteLevel0Table(memCache, newFileInfo);
+			FileMetadata tableEntry = db.WriteLevel0Table(memCache, newFileInfo);
 
-			var table = new Table(newFileInfo);
+			Assert.IsNotNull(tableEntry.Table);
+
+			Table table = tableEntry.Table;
 
 			//Key:fe ff ff ff f1 ff ff ff 76 
 			ResultStatus result = table.Get(new byte[] {0xfe, 0xff, 0xff, 0xff, 0xf1, 0xff, 0xff, 0xff, 0x76});

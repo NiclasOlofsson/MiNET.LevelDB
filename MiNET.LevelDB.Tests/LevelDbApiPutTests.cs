@@ -74,7 +74,8 @@ namespace MiNET.LevelDB.Tests
 		{
 			byte[] value;
 			byte[] result;
-			using (var db = new Database(GetTestDirectory()))
+			DirectoryInfo testDirectory = GetTestDirectory();
+			using (var db = new Database(testDirectory))
 			{
 				db.Open();
 
@@ -89,10 +90,13 @@ namespace MiNET.LevelDB.Tests
 				db.Put(testKeys.First(), new Span<byte>(value));
 				db.Put(testKeys.First(), new Span<byte>(value));
 				db.Close();
-
+			}
+			using (var db = new Database(testDirectory))
+			{
 				db.Open();
 				result = db.Get(testKeys.First());
 			}
+
 			Assert.AreEqual(value, result);
 		}
 
@@ -112,8 +116,6 @@ namespace MiNET.LevelDB.Tests
 				}
 
 				db.Close();
-
-				db.Open();
 			}
 		}
 

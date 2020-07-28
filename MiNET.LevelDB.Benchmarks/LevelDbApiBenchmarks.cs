@@ -44,8 +44,7 @@ namespace MiNET.LevelDB.Benchmarks
 		public void GlobalSetup()
 		{
 			string tempDir = Path.Combine(Path.GetTempPath(), $"LevelDB-{Guid.NewGuid().ToString()}");
-			_db = new Database(new DirectoryInfo(tempDir));
-			_db.CreateIfMissing = true;
+			_db = new Database(new DirectoryInfo(tempDir), true);
 			_db.Open();
 		}
 

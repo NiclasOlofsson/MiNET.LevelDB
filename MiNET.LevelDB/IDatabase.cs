@@ -29,6 +29,8 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
 using log4net;
 using MiNET.LevelDB.Utils;
 
@@ -39,6 +41,7 @@ namespace MiNET.LevelDB
 	public interface IDatabase : IDisposable
 	{
 		DirectoryInfo Directory { get; }
+		Options Options { get; }
 
 		void Delete(Span<byte> key);
 
@@ -55,70 +58,126 @@ namespace MiNET.LevelDB
 		bool IsClosed();
 	}
 
+	public class Options
+	{
+		public ulong MaxMemCacheSize { get; set; } = 4_000_000L; // 4Mb size before we rotate and compact
+	}
+
 	public class Database : IDatabase
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(Database));
 		private Manifest _manifest;
-		private MemCache _newMemCache;
+		private MemCache _memCache;
+		private MemCache _immutableMemCache;
+		private ulong _logNumber;
 		private LogWriter _log;
 		private Statistics _statistics = new Statistics();
+		private bool _createIfMissing;
 
 		public DirectoryInfo Directory { get; private set; }
-		public bool CreateIfMissing { get; set; } = false;
+		public Options Options { get; }
 
 		public static bool ParanoidMode { get; set; }
 
-		public Database(DirectoryInfo dbDirectory)
+		private ReaderWriterLockSlim _dbLock = new ReaderWriterLockSlim(LockRecursionPolicy.NoRecursion);
+		private Task _compactTask = null;
+
+		public Database(DirectoryInfo dbDirectory, bool createIfMissing = false, Options options = null)
 		{
 			Directory = dbDirectory;
+			_createIfMissing = createIfMissing;
+			Options = options ?? new Options();
 		}
 
 		public void Delete(Span<byte> key)
 		{
-			throw new NotImplementedException();
+			if (_manifest == null) throw new InvalidOperationException("No manifest for database. Did you open it?");
+			if (_memCache == null) throw new InvalidOperationException("No current memory cache for database. Did you open it?");
+
+			var operation = new BatchOperation()
+			{
+				Key = key.ToArray(),
+				Data = null,
+				ResultState = ResultState.Deleted
+			};
+
+			PutInternal(operation);
 		}
 
 		public void Put(Span<byte> key, Span<byte> value)
 		{
 			if (_manifest == null) throw new InvalidOperationException("No manifest for database. Did you open it?");
-			if (_newMemCache == null) throw new InvalidOperationException("No current memory cache for database. Did you open it?");
+			if (_memCache == null) throw new InvalidOperationException("No current memory cache for database. Did you open it?");
 
-
-			ulong sequenceNumber = _manifest.CurrentVersion.LastSequenceNumber++ ?? 0; //TODO: Make threadsafe!
-
-			var batch = new WriteBatch
-			{
-				Sequence = sequenceNumber,
-			};
-			batch.Operations.Add(new BatchOperation()
+			var operation = new BatchOperation()
 			{
 				Key = key.ToArray(),
 				Data = value.ToArray(),
 				ResultState = ResultState.Exist
-			});
+			};
 
-			// Write to LOG here.
-			_log?.WriteData(batch.EncodeBatch());
-			_newMemCache.Put(key, value);
+			PutInternal(operation);
+		}
 
-			//CompactMemCache();
+		private void PutInternal(BatchOperation operation)
+		{
+			_dbLock.EnterWriteLock();
+
+			try
+			{
+				MakeSurePutWorks();
+
+				ulong sequenceNumber = _manifest.CurrentVersion.GetNextSequenceNumber();
+				var batch = new WriteBatch
+				{
+					Sequence = sequenceNumber,
+				};
+				batch.Operations.Add(operation);
+
+				// Write to LOG here.
+				_log?.WriteData(batch.EncodeBatch());
+				_memCache.Put(batch);
+			}
+			finally
+			{
+				_dbLock.ExitWriteLock();
+			}
 		}
 
 		public byte[] Get(Span<byte> key)
 		{
-			if (_manifest == null) throw new InvalidOperationException("No manifest for database. Did you open it?");
-			if (_newMemCache == null) throw new InvalidOperationException("No current memory cache for database. Did you open it?");
+			_dbLock.EnterReadLock();
 
-			ResultStatus result = _newMemCache.Get(key);
-			if (result.State == ResultState.Deleted || result.State == ResultState.Exist)
+			try
 			{
+				if (_manifest == null) throw new InvalidOperationException("No manifest for database. Did you open it?");
+				if (_memCache == null) throw new InvalidOperationException("No current memory cache for database. Did you open it?");
+
+				ResultStatus result = _memCache.Get(key);
+				if (result.State == ResultState.Deleted || result.State == ResultState.Exist)
+				{
+					if (result.Data == ReadOnlySpan<byte>.Empty) return null;
+					return result.Data.ToArray();
+				}
+				MemCache imm = _immutableMemCache;
+				if (imm != null)
+				{
+					result = imm.Get(key);
+					if (result.State == ResultState.Deleted || result.State == ResultState.Exist)
+					{
+						if (result.Data == ReadOnlySpan<byte>.Empty) return null;
+						return result.Data.ToArray();
+					}
+				}
+
+				result = _manifest.Get(key);
 				if (result.Data == ReadOnlySpan<byte>.Empty) return null;
 				return result.Data.ToArray();
 			}
-
-			result = _manifest.Get(key);
-			if (result.Data == ReadOnlySpan<byte>.Empty) return null;
-			return result.Data.ToArray();
+			finally
+			{
+				_dbLock.ExitReadLock();
+			}
 		}
 
 		public List<string> GetDbKeysStartingWith(string startWith)
@@ -128,111 +187,141 @@ namespace MiNET.LevelDB
 
 		public void Open()
 		{
-			if (_manifest != null) throw new InvalidOperationException("Already had manifest for database. Did you already open it?");
-			if (_newMemCache != null) throw new InvalidOperationException("Already had memory cache for database. Did you already open it?");
+			if (_dbLock == null) throw new ObjectDisposedException("Database was closed and can not be reopened");
 
-			if (Directory.Name.EndsWith(".mcworld"))
+			_dbLock.EnterWriteLock();
+
+			try
 			{
-				// Exported from MCPE. Unpack to temp
+				if (_manifest != null) throw new InvalidOperationException("Already had manifest for database. Did you already open it?");
+				if (_memCache != null) throw new InvalidOperationException("Already had memory cache for database. Did you already open it?");
 
-				Log.Debug($"Opening directory: {Directory.Name}");
-
-				var originalFile = Directory;
-
-				string newDirPath = Path.Combine(Path.GetTempPath(), Directory.Name);
-				Directory = new DirectoryInfo(Path.Combine(newDirPath, "db"));
-				if (!Directory.Exists || originalFile.LastWriteTimeUtc > Directory.LastWriteTimeUtc)
+				if (Directory.Name.EndsWith(".mcworld"))
 				{
-					ZipFile.ExtractToDirectory(originalFile.FullName, newDirPath, true);
-					Log.Warn($"Created new temp directory: {Directory.FullName}");
+					// Exported from MCPE. Unpack to temp
+
+					Log.Debug($"Opening directory: {Directory.Name}");
+
+					var originalFile = Directory;
+
+					string newDirPath = Path.Combine(Path.GetTempPath(), Directory.Name);
+					Directory = new DirectoryInfo(Path.Combine(newDirPath, "db"));
+					if (!Directory.Exists || originalFile.LastWriteTimeUtc > Directory.LastWriteTimeUtc)
+					{
+						ZipFile.ExtractToDirectory(originalFile.FullName, newDirPath, true);
+						Log.Warn($"Created new temp directory: {Directory.FullName}");
+					}
+					Directory.Refresh();
+					Log.Warn($"Extracted bedrock world and set new DB directory to: {Directory.FullName}");
 				}
 
-				Log.Warn($"Extracted bedrock world and set new DB directory to: {Directory.FullName}");
-			}
-
-			// Verify that directory exists
-			if (!Directory.Exists)
-			{
-				if (!CreateIfMissing)
+				// Verify that directory exists
+				if (!Directory.Exists)
 				{
-					var notFoundException = new DirectoryNotFoundException(Directory.FullName);
-					Log.Error(notFoundException);
-					throw notFoundException;
+					Directory.Create();
+					Directory.Refresh();
+				}
+				if (!File.Exists(GetCurrentFileName()))
+				{
+					if (!_createIfMissing)
+					{
+						var notFoundException = new DirectoryNotFoundException(Directory.FullName);
+						Log.Error(notFoundException);
+						throw notFoundException;
+					}
+
+					// Create new MANIFEST
+
+					var manifest = new Manifest(Directory);
+					manifest.CurrentVersion = new VersionEdit()
+					{
+						Comparator = "leveldb.BytewiseComparator",
+						LogNumber = 1,
+						PreviousLogNumber = 0,
+						NextFileNumber = 2,
+						LastSequenceNumber = 0
+					};
+					var manifestFileInfo = new FileInfo(GetManifestFileName(1));
+					if (manifestFileInfo.Exists) throw new PanicException($"Trying to create database, but found existing MANIFEST file at {manifestFileInfo.FullName}. Aborting.");
+					using var writer = new LogWriter(manifestFileInfo);
+					manifest.Save(writer);
+					manifest.Close();
+
+					// Create new CURRENT text file and store manifest filename in it
+					using StreamWriter current = File.CreateText(GetCurrentFileName());
+					current.WriteLine(manifestFileInfo.Name);
+					current.Close();
+
+					// Done and created
 				}
 
-				Directory.Create();
-				Directory.Refresh();
+				Directory.Refresh(); // If this has been manipulated on the way, this is really needed.
 
-				// Create new MANIFEST
+				// Read Manifest into memory
 
-				var manifest = new Manifest(Directory);
-				manifest.CurrentVersion = new VersionEdit()
+				string manifestFilename = GetManifestFileNameFromCurrent();
+				Log.Debug($"Reading manifest from {manifestFilename}");
+				using (var reader = new LogReader(new FileInfo(manifestFilename)))
 				{
-					Comparator = "leveldb.BytewiseComparator",
-					LogNumber = 1,
-					PreviousLogNumber = 0,
-					NextFileNumber = 2,
-					LastSequenceNumber = 1
-				};
-				string filename = $"MANIFEST-000001";
-				using var writer = new LogWriter(new FileInfo($@"{Path.Combine(Directory.FullName, filename)}"));
-				manifest.Save(writer);
-				manifest.Close();
+					_manifest = new Manifest(Directory);
+					_manifest.Load(reader);
+				}
 
-				// Create new CURRENT text file and store manifest filename in it
-				using StreamWriter current = File.CreateText($@"{Path.Combine(Directory.FullName, "CURRENT")}");
-				current.WriteLine(filename);
-				current.Close();
+				// Read current log
+				var logFile = new FileInfo(GetLogFileName(_manifest.CurrentVersion.LogNumber));
+				Log.Debug($"Reading log from {logFile.FullName}");
+				using (var reader = new LogReader(logFile))
+				{
+					_memCache = new MemCache();
+					_memCache.Load(reader);
+				}
 
-				// Done and created
+				// Append mode
+				_log = new LogWriter(logFile);
+
+				// We do this on startup. It will rotate the log files and create
+				// level 0 tables. However, we want to use into reusing the logs.
+				CompactMemCache(true);
+				CleanOldFiles();
 			}
-
-			Directory.Refresh(); // If this has been manipulated on the way, this is really needed.
-
-			// Read Manifest into memory
-
-			string manifestFilename = GetCurrentManifestFile();
-			Log.Debug($"Reading manifest from {Path.Combine(Directory.FullName, manifestFilename)}");
-			using (var reader = new LogReader(new FileInfo($@"{Path.Combine(Directory.FullName, manifestFilename)}")))
+			finally
 			{
-				_manifest = new Manifest(Directory);
-				_manifest.Load(reader);
+				_dbLock.ExitWriteLock();
 			}
-
-			// Read current log
-			var logFile = new FileInfo(Path.Combine(Directory.FullName, _manifest.CurrentVersion.GetLogFileName()));
-			Log.Debug($"Reading log from {logFile.FullName}");
-			using (var reader = new LogReader(logFile))
-			{
-				_newMemCache = new MemCache();
-				_newMemCache.Load(reader);
-			}
-
-			_log = new LogWriter(logFile);
-
-			// We do this on startup. It will rotate the log files and create
-			// level 0 tables. However, we want to use into reusing the logs.
-			CompactMemCache(true);
 		}
 
 		public void Close()
 		{
-			if (_newMemCache != null)
-			{
-				var memCache = _newMemCache;
-				_newMemCache = null;
+			if (_dbLock == null) return;
 
-				//if (_manifest != null)
-				//{
-				//	//TODO: Save of log should happen continuous (async) when doing Put() operations.
-				//	using var logWriter = new LogWriter(new FileInfo(Path.Combine(Directory.FullName, $"{(_manifest.CurrentVersion.LogNumber ?? 0):000000}.log")));
-				//	memCache.Write(logWriter);
-				//}
+			_compactTask?.Wait();
+
+			_dbLock.EnterWriteLock();
+			try
+			{
+				if (_memCache != null)
+				{
+					var memCache = _memCache;
+					_memCache = null;
+
+					//if (_manifest != null)
+					//{
+					//	//TODO: Save of log should happen continuous (async) when doing Put() operations.
+					//	using var logWriter = new LogWriter(new FileInfo(Path.Combine(Directory.FullName, $"{(_manifest.CurrentVersion.LogNumber ?? 0):000000}.log")));
+					//	memCache.Write(logWriter);
+					//}
+				}
+				_log?.Close();
+				_log = null;
+				_manifest?.Close();
+				_manifest = null;
 			}
-			_log?.Close();
-			_log = null;
-			_manifest?.Close();
-			_manifest = null;
+			finally
+			{
+				_dbLock.ExitWriteLock();
+				_dbLock?.Dispose();
+				_dbLock = null;
+			}
 		}
 
 		public bool IsClosed()
@@ -245,74 +334,135 @@ namespace MiNET.LevelDB
 			Close();
 		}
 
-		private void CompactMemCache(bool force = false)
+		private string GetCurrentFileName()
 		{
-			if (!force && _newMemCache.GetEstimatedSize() < 4000000L) return; // 4Mb
-
-			if (_newMemCache._resultCache.Count == 0) return;
-
-			Log.Warn($"Compact kicking in");
-
-			// Lock memcache for write
-
-			// Write prev memcache to a level 0 table
-
-			VersionEdit currentVersion = _manifest.CurrentVersion;
-			ulong newFileNumber = currentVersion.GetNewFileNumber();
-
-			var tableFileInfo = new FileInfo(Path.Combine(Directory.FullName, $"{newFileNumber:000000}.ldb"));
-			FileMetadata meta = WriteLevel0Table(_newMemCache, tableFileInfo);
-			var newTable = new Table(tableFileInfo);
-			meta.FileNumber = newFileNumber;
-			meta.Table = newTable;
-
-			// Update version data and commit new manifest (save)
-
-			var newVersion = new VersionEdit(currentVersion);
-			newVersion.LogNumber++;
-			newVersion.PreviousLogNumber = 0; // Not used anymore
-			newVersion.AddNewFile(0, meta);
-
-			Manifest.Print(newVersion);
-
-			// replace current memcache with new version. Should probably do this after manifest is confirmed written ok.
-			var newCache = new MemCache();
-			_newMemCache = newCache;
-
-			// Replace log file with new one
-			string logFileToDelete = currentVersion.GetLogFileName();
-			var logFile = new FileInfo(Path.Combine(Directory.FullName, newVersion.GetLogFileName()));
-			LogWriter oldLog = _log;
-			_log = new LogWriter(logFile);
-			oldLog?.Close();
-			// Remove old log file
-			File.Delete(Path.Combine(Directory.FullName, logFileToDelete));
-
-			// Update manifest with new version
-			string manifestFileToDelete = GetCurrentManifestFile();
-			_manifest.CurrentVersion = newVersion;
-			string manifestFilename = $"MANIFEST-{newVersion.GetNewFileNumber():000000}";
-			using (var writer = new LogWriter(new FileInfo($@"{Path.Combine(Directory.FullName, manifestFilename)}")))
-			{
-				_manifest.Save(writer);
-			}
-
-			using (StreamWriter currentStream = File.CreateText($@"{Path.Combine(Directory.FullName, "CURRENT")}"))
-			{
-				currentStream.WriteLine(manifestFilename);
-				currentStream.Close();
-			}
-
-			// Remove old manifest file
-			File.Delete($@"{Path.Combine(Directory.FullName, manifestFileToDelete)}");
-
-			// unlock
+			return Path.Combine(Directory.FullName, "CURRENT");
 		}
 
-		private string GetCurrentManifestFile()
+		private string GetLogFileName(ulong fileNumber)
 		{
-			using StreamReader currentStream = File.OpenText($@"{Path.Combine(Directory.FullName, "CURRENT")}");
-			return currentStream.ReadLine();
+			return Path.Combine(Directory.FullName, $"{fileNumber:000000}.log");
+		}
+
+		private string GetTableFileName(ulong fileNumber)
+		{
+			return Path.Combine(Directory.FullName, $"{fileNumber:000000}.ldb");
+		}
+
+		private string GetManifestFileName(ulong fileNumber)
+		{
+			return Path.Combine(Directory.FullName, $"MANIFEST-{fileNumber:000000}");
+		}
+
+		private string GetManifestFileNameFromCurrent()
+		{
+			using StreamReader currentStream = File.OpenText(GetCurrentFileName());
+			string manifestFileName = currentStream.ReadLine();
+			if (string.IsNullOrEmpty(manifestFileName)) throw new FileNotFoundException("Missing content in CURRENT");
+
+			manifestFileName = Path.Combine(Directory.FullName, manifestFileName);
+			if (!File.Exists(manifestFileName)) throw new FileNotFoundException(manifestFileName);
+			return manifestFileName;
+		}
+
+		private void MakeSurePutWorks()
+		{
+			if (!_dbLock.IsWriteLockHeld) throw new SynchronizationLockException("Expected caller to hold write lock");
+
+			if (_memCache.GetEstimatedSize() < Options.MaxMemCacheSize) return; // All fine, carry on
+
+			if (_immutableMemCache != null)
+			{
+				// still compacting
+				//_compactReset.WaitOne();
+			}
+			else
+			{
+				// Rotate memcache and log
+
+				Log.Debug($"Time to rotate memcache. Size={_memCache.GetEstimatedSize()} bytes");
+
+				LogWriter oldLog = _log;
+
+				ulong logNumber = _manifest.CurrentVersion.GetNewFileNumber();
+				_log = new LogWriter(new FileInfo(GetLogFileName(logNumber)));
+				_logNumber = logNumber;
+
+				_immutableMemCache = _memCache;
+				_memCache = new MemCache();
+
+				oldLog.Close();
+
+				_compactTask = new Task(() => CompactMemCache());
+				_compactTask.Start();
+				// Schedule compact
+			}
+		}
+
+		private ManualResetEvent _compactReset = new ManualResetEvent(true);
+
+		private void CompactMemCache(bool force = false)
+		{
+			Log.Debug($"Checking if we should compact");
+
+			bool shouldReleaseLock = !_dbLock.IsWriteLockHeld;
+			if(!_dbLock.IsWriteLockHeld)
+			{
+				_dbLock.EnterWriteLock();
+			}
+
+			try
+			{
+				//if (!force && _memCache.GetEstimatedSize() < Options.MaxMemCacheSize) return; // 4Mb
+
+				if (_immutableMemCache == null) return;
+
+				Log.Debug($"Compact kicking in");
+
+				_compactReset.Reset();
+
+				// Write immutable memcache to a level 0 table
+
+				VersionEdit version = _manifest.CurrentVersion;
+				ulong newFileNumber = version.GetNewFileNumber();
+
+				var tableFileInfo = new FileInfo(GetTableFileName(newFileNumber));
+				FileMetadata meta = WriteLevel0Table(_immutableMemCache, tableFileInfo);
+				meta.FileNumber = newFileNumber;
+
+				// Update version data and commit new manifest (save)
+
+				var newVersion = new VersionEdit(version);
+				newVersion.LogNumber = _logNumber;
+				newVersion.AddNewFile(0, meta);
+				Manifest.Print(newVersion);
+
+				_immutableMemCache = null;
+
+				// Update manifest with new version
+				_manifest.CurrentVersion = newVersion;
+
+				var manifestFileName = new FileInfo(GetManifestFileName(newVersion.GetNewFileNumber()));
+				using (var writer = new LogWriter(manifestFileName))
+				{
+					_manifest.Save(writer);
+				}
+
+				using (StreamWriter currentStream = File.CreateText(GetCurrentFileName()))
+				{
+					currentStream.WriteLine(manifestFileName.Name);
+					currentStream.Close();
+				}
+
+				CleanOldFiles();
+
+				_compactTask = null;
+				_compactReset.Set();
+			}
+			finally
+			{
+				if(shouldReleaseLock) _dbLock.ExitWriteLock();
+			}
 		}
 
 		internal FileMetadata WriteLevel0Table(MemCache memCache, FileInfo tableFileInfo)
@@ -360,8 +510,47 @@ namespace MiNET.LevelDB
 				FileSize = (ulong) fileSize,
 				SmallestKey = smallestKey,
 				LargestKey = largestKey,
-				Table = null
+				Table = new Table(tableFileInfo)
 			};
+		}
+
+		internal void CleanOldFiles()
+		{
+			Directory.Refresh();
+			var version = _manifest.CurrentVersion;
+
+			foreach (FileInfo file in Directory.GetFiles())
+			{
+				switch (file.Name)
+				{
+					case { } s when s.EndsWith(".log"):
+					{
+						ulong number = ulong.Parse(s.Replace(".log", ""));
+						if (number < version.LogNumber) file.Delete();
+						break;
+					}
+					case { } s when s.EndsWith(".ldb"):
+					{
+						ulong number = ulong.Parse(s.Replace(".ldb", ""));
+						break;
+					}
+					case { } s when s.StartsWith("MANIFEST-"):
+					{
+						ulong number = ulong.Parse(s.Replace("MANIFEST-", ""));
+						string currentName = new FileInfo(GetManifestFileNameFromCurrent()).Name;
+						ulong currentNumber = ulong.Parse(currentName.Replace("MANIFEST-", ""));
+						if (number < currentNumber) file.Delete();
+						break;
+					}
+				}
+			}
+		}
+	}
+
+	public class PanicException : Exception
+	{
+		public PanicException(string message) : base(message)
+		{
 		}
 	}
 

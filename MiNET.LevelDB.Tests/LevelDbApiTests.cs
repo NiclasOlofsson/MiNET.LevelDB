@@ -29,6 +29,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using log4net;
+using MiNET.LevelDB.Utils;
 using NUnit.Framework;
 
 namespace MiNET.LevelDB.Tests
@@ -82,15 +83,13 @@ namespace MiNET.LevelDB.Tests
 		[Test]
 		public void LevelDbCreateFromDirectory()
 		{
-			var tempDir = new DirectoryInfo(Path.Combine(Path.GetTempPath(), $"LevelDB-{Guid.NewGuid().ToString()}"));
+			var tempDir = new DirectoryInfo(Path.Combine(Path.GetTempPath(), $"LevelDB-{Guid.NewGuid()}"));
 			var data = new byte[] {0, 1, 2, 3};
 			byte[] key = testKeys.Last();
 
-			using (var db = new Database(tempDir))
+			using (var db = new Database(tempDir, true))
 			{
-				db.CreateIfMissing = true;
 				db.Open();
-
 				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "CURRENT")), "Missing CURRENT");
 				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "MANIFEST-000001")), "Missing new manifest");
 				Assert.False(File.Exists(Path.Combine(tempDir.FullName, "000001.log")), "Didn't expect to have log file yet");
@@ -114,40 +113,6 @@ namespace MiNET.LevelDB.Tests
 
 			// Later, we also need verify table files.
 			// however, not yet implemented conversion from log -> table
-
-			tempDir.Refresh();
-
-			using (var db = new Database(tempDir))
-			{
-				db.Open();
-				Assert.False(File.Exists(Path.Combine(tempDir.FullName, "000001.log")), "Expected log to have been deleted");
-				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "000002.ldb")), "Missing level 0 table file");
-				Assert.False(File.Exists(Path.Combine(tempDir.FullName, "MANIFEST-000001")), "Should have removed old manifest");
-				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "MANIFEST-000003")), "Missing new manifest");
-
-				byte[] result = db.Get(key);
-				Assert.AreEqual(data, result);
-
-				db.Put(key, data);
-				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "000002.log")), "Missing log");
-
-				db.Close();
-			}
-
-			return;
-			// Try again to make sure nothing happens on close.
-			using (var db = new Database(tempDir))
-			{
-				db.Open();
-				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "000002.ldb")), "Missing level 0 table file");
-				Assert.False(File.Exists(Path.Combine(tempDir.FullName, "MANIFEST-000001")), "Should have removed old manifest");
-				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "MANIFEST-000003")), "Missing new manifest");
-
-				byte[] result = db.Get(key);
-				Assert.AreEqual(data, result);
-
-				db.Close();
-			}
 		}
 
 		[Test]
@@ -189,23 +154,28 @@ namespace MiNET.LevelDB.Tests
 			Log.Info($"time={time}");
 		}
 
-		[TestCase(new byte[] {0xf6, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x2f, 0x00,})]
-		[TestCase(new byte[] {0xf7, 0xff, 0xff, 0xff, 0x01, 0x00, 0x00, 0x00, 0x2f, 0x00,})]
-		[TestCase(new byte[] {0xf7, 0xff, 0xff, 0xff, 0xf1, 0xff, 0xff, 0xff, 0x76,})]
-		[TestCase(new byte[] {0xf7, 0xff, 0xff, 0xff, 0xfd, 0xff, 0xff, 0xff, 0x2f, 0x05,})]
-		[TestCase(new byte[] {0xfa, 0xff, 0xff, 0xff, 0xe7, 0xff, 0xff, 0xff, 0x2f, 0x02,})]
-		[TestCase(new byte[] {0xfa, 0xff, 0xff, 0xff, 0xe7, 0xff, 0xff, 0xff, 0x2f, 0x03,})]
-		public void LevelDbRepeatedGetValueFromKey(byte[] testKey)
+		[Test]
+		public void LevelDbRepeatedGetValueFromKey()
 		{
-			// fa ff ff ff e7 ff ff ff 2f 03
-			byte[] result;
+			var values = new List<byte[]>()
+			{
+				new byte[] {0xf6, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x2f, 0x00,},
+				new byte[] {0xf7, 0xff, 0xff, 0xff, 0x01, 0x00, 0x00, 0x00, 0x2f, 0x00,},
+				new byte[] {0xf7, 0xff, 0xff, 0xff, 0xf1, 0xff, 0xff, 0xff, 0x76,},
+				new byte[] {0xf7, 0xff, 0xff, 0xff, 0xfd, 0xff, 0xff, 0xff, 0x2f, 0x05,},
+				new byte[] {0xfa, 0xff, 0xff, 0xff, 0xe7, 0xff, 0xff, 0xff, 0x2f, 0x02,},
+				new byte[] {0xfa, 0xff, 0xff, 0xff, 0xe7, 0xff, 0xff, 0xff, 0x2f, 0x03,}
+			};
+
 			using (var db = new Database(GetTestDirectory()))
 			{
 				db.Open();
-
-				result = db.Get(testKey);
+				foreach (byte[] testKey in values)
+				{
+					byte[] result = db.Get(testKey);
+					Assert.IsNotNull(result, testKey.ToHexString());
+				}
 			}
-			//Assert.IsNotNull(result, testKey.HexDump());
 		}
 
 		[Test]
