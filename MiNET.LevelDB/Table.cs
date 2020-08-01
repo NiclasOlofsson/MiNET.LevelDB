@@ -30,6 +30,7 @@ using System.IO;
 using System.IO.MemoryMappedFiles;
 using System.Text;
 using log4net;
+using MiNET.LevelDB.Enumerate;
 using MiNET.LevelDB.Utils;
 
 namespace MiNET.LevelDB
@@ -78,6 +79,8 @@ namespace MiNET.LevelDB
 				}
 				_blockIndex = footer.BlockIndexBlockHandle.ReadBlock(_memFile);
 				_metaIndex = footer.MetaIndexBlockHandle.ReadBlock(_memFile);
+
+				Log.Debug($"initialized table index len {_blockIndex?.Length}");
 
 				Dictionary<string, BlockHandle> filters = GetFilters();
 				if (filters.TryGetValue("filter.leveldb.BuiltinBloomFilter2", out BlockHandle filterHandle))

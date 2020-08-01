@@ -23,8 +23,10 @@
 
 #endregion
 
+using System;
 using System.IO;
 using log4net;
+using MiNET.LevelDB.Enumerate;
 using MiNET.LevelDB.Utils;
 using NUnit.Framework;
 
@@ -53,6 +55,50 @@ namespace MiNET.LevelDB.Tests
 			}
 
 			Assert.AreEqual(5322, count);
+		}
+
+		[Test]
+		public void Level0TableEnumeratorShouldIterateAllKeysInOrder()
+		{
+			DirectoryInfo dir = TestUtils.GetTestDirectory(false);
+
+			// Setup new database and generate values enough to create 2 level 0 tables with overlapping keys.
+			// We use this when we run the real test.
+			using (var db = new Database(dir, true))
+			{
+				db.Open();
+
+				var random = new Random();
+				for (int i = 0; i < 8000; i++)
+				{
+					//byte[] key = TestUtils.FillArrayWithRandomBytes(random.Next(10, 16));
+					//byte[] data = TestUtils.FillArrayWithRandomBytes(random.Next(500, 1500));
+					byte[] key = TestUtils.FillArrayWithRandomBytes(14);
+					byte[] data = TestUtils.FillArrayWithRandomBytes(1000);
+					db.Put(key, data);
+				}
+
+				{
+					int count = db.TEST_MergeLevel0();
+					Assert.AreEqual(7752, count); // Some are in memcache and wasn't flushed. It's ok.
+				}
+
+				for (int i = 0; i < 4000; i++)
+				{
+					//byte[] key = TestUtils.FillArrayWithRandomBytes(random.Next(10, 16));
+					//byte[] data = TestUtils.FillArrayWithRandomBytes(random.Next(500, 1500));
+					byte[] key = TestUtils.FillArrayWithRandomBytes(14);
+					byte[] data = TestUtils.FillArrayWithRandomBytes(1000);
+					db.Put(key, data);
+				}
+
+				{
+					int count = db.TEST_MergeLevel0();
+					Assert.AreEqual(3876, count); // Some are in memcache and wasn't flushed. It's ok.
+				}
+
+				db.Close();
+			}
 		}
 	}
 }

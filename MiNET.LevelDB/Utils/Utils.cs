@@ -47,6 +47,13 @@ namespace MiNET.LevelDB.Utils
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static ReadOnlySpan<byte> UserKey(this ReadOnlySpan<byte> fullKey)
+		{
+			if (fullKey == null || fullKey.IsEmpty) return Span<byte>.Empty;
+			return fullKey.Slice(0, fullKey.Length - 8);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static ulong SequenceNumber(this Span<byte> fullKey)
 		{
 			var number = BitConverter.ToUInt64(fullKey.Slice(fullKey.Length - 8, 8));
@@ -82,7 +89,7 @@ namespace MiNET.LevelDB.Utils
 
 		public static string ToHexString(this ReadOnlySpan<byte> bytes)
 		{
-			return bytes.HexDump(bytes.Length, cutAfterFive: true, printText: false);
+			return bytes.HexDump(bytes.Length, cutAfterFive: true, printText: false).Trim();
 		}
 
 		public static string HexDump(this byte[] value, int bytesPerLine = 16, bool printLineCount = false, bool printText = true, bool cutAfterFive = false)

@@ -32,6 +32,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using log4net;
+using MiNET.LevelDB.Enumerate;
 using MiNET.LevelDB.Utils;
 
 [assembly: InternalsVisibleTo("MiNET.LevelDB.Tests")]
@@ -406,7 +407,7 @@ namespace MiNET.LevelDB
 			Log.Debug($"Checking if we should compact");
 
 			bool shouldReleaseLock = !_dbLock.IsWriteLockHeld;
-			if(!_dbLock.IsWriteLockHeld)
+			if (!_dbLock.IsWriteLockHeld)
 			{
 				_dbLock.EnterWriteLock();
 			}
@@ -461,7 +462,7 @@ namespace MiNET.LevelDB
 			}
 			finally
 			{
-				if(shouldReleaseLock) _dbLock.ExitWriteLock();
+				if (shouldReleaseLock) _dbLock.ExitWriteLock();
 			}
 		}
 
@@ -477,7 +478,7 @@ namespace MiNET.LevelDB
 			{
 				if (entry.Value.ResultState != ResultState.Exist && entry.Value.ResultState != ResultState.Deleted) continue;
 
-				byte[] opAndSeq = BitConverter.GetBytes((ulong) entry.Value.Sequence);
+				byte[] opAndSeq = BitConverter.GetBytes((ulong) entry.Value.Sequence << 8);
 				opAndSeq[0] = (byte) (entry.Value.ResultState == ResultState.Exist ? 1 : 0);
 
 				byte[] key = entry.Key.Concat(opAndSeq).ToArray();
@@ -491,7 +492,7 @@ namespace MiNET.LevelDB
 					if (entry.Value.ResultState == ResultState.Deleted)
 						Log.Warn($"Key:{key.ToHexString()} {entry.Value.Sequence}, {entry.Value.ResultState == ResultState.Exist}, size:{entry.Value.Data?.Length ?? 0}");
 					else
-						Log.Debug($"Key:{key.ToHexString()} {entry.Value.Sequence}, {entry.Value.ResultState == ResultState.Exist}");
+						Log.Debug($"Key:{key.ToHexString()} Seq: {entry.Value.Sequence}, Exist: {entry.Value.ResultState == ResultState.Exist}");
 				}
 
 				creator.Add(key, data);
@@ -502,7 +503,7 @@ namespace MiNET.LevelDB
 			fileStream.Close();
 
 			Log.Debug($"Size distinct:{memCache._resultCache.Distinct().Count()}");
-			Log.Debug($"Wrote {memCache._resultCache.Count} values");
+			Log.Debug($"Wrote {memCache._resultCache.Count} values to {tableFileInfo.Name}");
 
 			return new FileMetadata
 			{
@@ -544,6 +545,79 @@ namespace MiNET.LevelDB
 					}
 				}
 			}
+		}
+
+		internal int TEST_MergeLevel0()
+		{
+			Log.Debug($"Trying to do merge..");
+
+			VersionEdit version = _manifest.CurrentVersion;
+			var files = new List<TableEnumerator>();
+			List<FileMetadata> level0 = version.NewFiles[0];
+			foreach (FileMetadata metadata in level0)
+			{
+				metadata.Table ??= _manifest.GetTable(metadata.FileNumber);
+				metadata.Table.Get(Span<byte>.Empty);
+				Log.Debug($"Add enumerator for {metadata.FileNumber}, idx len {metadata.Table._blockIndex.Length}");
+				files.Add((TableEnumerator) metadata.Table.GetEnumerator());
+			}
+
+			var mergeEnumerator = new MergeEnumerator(files);
+			int count = 0;
+
+			var meta = new FileMetadata() {FileNumber = version.GetNewFileNumber()};
+
+			var newFileInfo = new FileInfo(GetTableFileName(meta.FileNumber));
+
+			using FileStream fileStream = newFileInfo.Create();
+			var creator = new TableCreator(fileStream);
+
+			byte[] smallestKey = null;
+			byte[] largestKey = null;
+			foreach (BlockEntry entry in mergeEnumerator)
+			{
+				count++;
+				ReadOnlyMemory<byte> key = entry.Key;
+				Log.Debug($"{key.ToHexString()}");
+				creator.Add(key.Span, entry.Data.Span);
+				smallestKey ??= key.ToArray();
+				largestKey = key.ToArray();
+			}
+			meta.SmallestKey = smallestKey;
+			meta.LargestKey = largestKey;
+			newFileInfo.Refresh();
+			meta.FileSize = (ulong) newFileInfo.Length;
+
+			creator.Finish();
+
+			var newVersion = new VersionEdit(version);
+			newVersion.LogNumber = _logNumber;
+			foreach (FileMetadata fileMetadata in level0.ToArray())
+			{
+				newVersion.AddDeletedFile(0, fileMetadata.FileNumber);
+			}
+			newVersion.AddNewFile(1, meta);
+			Manifest.Print(newVersion);
+
+			// Update manifest with new version
+			_manifest.CurrentVersion = newVersion;
+
+			var manifestFileName = new FileInfo(GetManifestFileName(newVersion.GetNewFileNumber()));
+			using (var writer = new LogWriter(manifestFileName))
+			{
+				_manifest.Save(writer);
+			}
+
+			using (StreamWriter currentStream = File.CreateText(GetCurrentFileName()))
+			{
+				currentStream.WriteLine(manifestFileName.Name);
+				currentStream.Close();
+			}
+
+			CleanOldFiles();
+
+
+			return count;
 		}
 	}
 

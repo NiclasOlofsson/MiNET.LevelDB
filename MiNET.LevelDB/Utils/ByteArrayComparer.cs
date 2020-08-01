@@ -47,4 +47,17 @@ namespace MiNET.LevelDB.Utils
 			return key.Sum(b => b);
 		}
 	}
+
+	public class MemoryComparer : IEqualityComparer<ReadOnlyMemory<byte>>
+	{
+		public bool Equals(ReadOnlyMemory<byte> left, ReadOnlyMemory<byte> right)
+		{
+			return left.Span.SequenceEqual(right.Span);
+		}
+
+		public int GetHashCode(ReadOnlyMemory<byte> key)
+		{
+			return key.ToArray().Sum(b => b);
+		}
+	}
 }

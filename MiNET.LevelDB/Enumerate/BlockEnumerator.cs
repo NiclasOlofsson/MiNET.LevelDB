@@ -30,7 +30,7 @@ using System.IO;
 using log4net;
 using MiNET.LevelDB.Utils;
 
-namespace MiNET.LevelDB
+namespace MiNET.LevelDB.Enumerate
 {
 	public class BlockEnumerator : IEnumerator<BlockEntry>
 	{
@@ -44,6 +44,8 @@ namespace MiNET.LevelDB
 
 		public BlockEnumerator(ReadOnlyMemory<byte> blockData)
 		{
+			if (blockData.Length == 0) throw new NullReferenceException("Can't use enumerator on empty data");
+
 			_blockData = blockData;
 
 			Initialize();
@@ -54,7 +56,7 @@ namespace MiNET.LevelDB
 			var reader = new SpanReader(_blockData.Span);
 			reader.Seek(-4, SeekOrigin.End);
 			_restartCount = (int) reader.ReadUInt32();
-			Log.Warn($"Got {_restartCount} restart points");
+			//Log.Warn($"Got {_restartCount} restart points");
 			reader.Seek(-((1 + _restartCount) * sizeof(uint)), SeekOrigin.End);
 			_restartOffset = reader.Position;
 

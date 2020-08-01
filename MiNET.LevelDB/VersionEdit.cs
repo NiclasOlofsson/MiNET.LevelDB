@@ -24,6 +24,7 @@
 #endregion
 
 using System.Collections.Generic;
+using System.Linq;
 
 namespace MiNET.LevelDB
 {
@@ -39,14 +40,22 @@ namespace MiNET.LevelDB
 		public Dictionary<int, List<ulong>> DeletedFiles { get; set; } = new Dictionary<int, List<ulong>>();
 		public Dictionary<int, List<FileMetadata>> NewFiles { get; set; } = new Dictionary<int, List<FileMetadata>>();
 
+		private object _seqLock = new object();
+
 		public ulong GetNextSequenceNumber()
 		{
-			return LastSequenceNumber++;
+			lock (_seqLock)
+			{
+				return LastSequenceNumber++;
+			}
 		}
 
 		public ulong GetNewFileNumber()
 		{
-			return NextFileNumber++;
+			lock (_seqLock)
+			{
+				return NextFileNumber++;
+			}
 		}
 
 		public void AddNewFile(int level, FileMetadata meta)
@@ -59,6 +68,18 @@ namespace MiNET.LevelDB
 		public void AddDeletedFile(int level, ulong fileNumber)
 		{
 			if (!DeletedFiles.ContainsKey(level)) DeletedFiles[level] = new List<ulong>();
+			if (level > 0)
+			{
+				List<FileMetadata> newFiles = NewFiles[level - 1];
+				FileMetadata file = newFiles.FirstOrDefault(f => f.FileNumber == fileNumber);
+				if (file != null) newFiles.Remove(file);
+			}
+
+			{
+				List<FileMetadata> newFiles = NewFiles[level];
+				FileMetadata file = newFiles.FirstOrDefault(f => f.FileNumber == fileNumber);
+				if (file != null) newFiles.Remove(file);
+			}
 
 			DeletedFiles[level].Add(fileNumber);
 		}

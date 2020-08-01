@@ -126,6 +126,14 @@ namespace MiNET.LevelDB
 			return ResultStatus.NotFound;
 		}
 
+		internal Table GetTable(ulong fileNumber)
+		{
+			var f = new FileInfo(Path.Combine(_baseDirectory.FullName, $"{fileNumber:000000}.ldb"));
+			if (!f.Exists) throw new Exception($"Could not find table {f.FullName}");
+			var table = new Table(f);
+			return table;
+		}
+
 		public static VersionEdit ReadVersionEdit(LogReader logReader)
 		{
 			var version = new VersionEdit();

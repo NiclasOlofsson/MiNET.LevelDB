@@ -26,71 +26,65 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using log4net;
+using System.Linq;
+using MiNET.LevelDB.Utils;
 
-namespace MiNET.LevelDB
+namespace MiNET.LevelDB.Enumerate
 {
-	public class BlockEntry
+	public class MergeEnumerator : IEnumerator<BlockEntry>, IEnumerable<BlockEntry>
 	{
-		public ReadOnlyMemory<byte> Key { get; set; }
-		public ReadOnlyMemory<byte> Data { get; set; }
-	}
+		private readonly List<TableEnumerator> _enumerators;
+		private BytewiseComparator _comparator = new BytewiseComparator();
+		private Dictionary<ReadOnlyMemory<byte>, BlockEntry> _currentEntries = new Dictionary<ReadOnlyMemory<byte>, BlockEntry>(new MemoryComparer());
 
-	public class TableEnumerator : IEnumerator<BlockEntry>, IEnumerable<BlockEntry>
-	{
-		private static readonly ILog Log = LogManager.GetLogger(typeof(TableEnumerator));
-
-		private readonly Table _table;
-		private readonly BlockEnumerator _blockIndexEnum;
-
-		private BlockEnumerator _currentBlockEnum;
-
-		public TableEnumerator(Table table)
+		public MergeEnumerator(List<TableEnumerator> enumerators)
 		{
-			_table = table;
-			_blockIndexEnum = new BlockEnumerator(table._blockIndex);
+			_enumerators = enumerators;
 
 			Reset();
 		}
 
 		public bool MoveNext()
 		{
-			if (!_currentBlockEnum.MoveNext())
+			var sorted = new SortedList<ReadOnlyMemory<byte>, BlockEntry>(_currentEntries, new BytewiseMemoryComparator(true));
+			if (sorted.Count == 0) return false;
+
+			ReadOnlyMemory<byte> first = sorted.Keys.First();
+			if (_currentEntries.Remove(first, out BlockEntry entry))
 			{
-				Log.Debug($"Data block empty. Moving to next block.");
-
-				if (!_blockIndexEnum.MoveNext())
-				{
-					Log.Debug($"Block index empty");
-					return false;
-				}
-
-				BlockEntry entry = _blockIndexEnum.Current;
-				if (entry == null)
-				{
-					Log.Warn($"Unexpected empty index entry");
-					return false;
-				}
-
-				byte[] dataBlock = _table.GetBlock(BlockHandle.ReadBlockHandle(entry.Data.Span));
-				_currentBlockEnum = new BlockEnumerator(dataBlock);
+				AddNewCurrent(entry.Key);
 			}
-
-			Current = _currentBlockEnum.Current;
-
+			Current = entry;
 			return Current != null;
+		}
+
+		private void AddNewCurrent(ReadOnlyMemory<byte> toReplace)
+		{
+			foreach (TableEnumerator enumerator in _enumerators)
+			{
+				if(enumerator.Current == null) continue;
+
+				if (enumerator.Current.Key.Equals(toReplace))
+				{
+					if (!enumerator.MoveNext())
+					{
+						break;
+					}
+
+					_currentEntries[enumerator.Current.Key] = enumerator.Current;
+					return;
+				}
+			}
 		}
 
 		public void Reset()
 		{
-			_blockIndexEnum.Reset();
-
-			BlockEntry entry = _blockIndexEnum.Current;
-			if (entry == null) throw new Exception("Error");
-
-			byte[] dataBlock = _table.GetBlock(BlockHandle.ReadBlockHandle(entry.Data.Span));
-			_currentBlockEnum = new BlockEnumerator(dataBlock);
-			Current = _currentBlockEnum.Current;
+			_currentEntries.Clear();
+			foreach (TableEnumerator enumerator in _enumerators)
+			{
+				enumerator.Reset();
+				_currentEntries[enumerator.Current.Key] = enumerator.Current;
+			}
 		}
 
 		public BlockEntry Current { get; private set; }
@@ -103,7 +97,7 @@ namespace MiNET.LevelDB
 
 		public IEnumerator<BlockEntry> GetEnumerator()
 		{
-			return _blockIndexEnum;
+			return this;
 		}
 
 		IEnumerator IEnumerable.GetEnumerator()
