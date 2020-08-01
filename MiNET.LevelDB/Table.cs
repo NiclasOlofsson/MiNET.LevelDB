@@ -24,6 +24,7 @@
 #endregion
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.MemoryMappedFiles;
@@ -33,12 +34,12 @@ using MiNET.LevelDB.Utils;
 
 namespace MiNET.LevelDB
 {
-	public class Table : IDisposable
+	public class Table : IDisposable, IEnumerable<BlockEntry>
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(Table));
 
 		private readonly FileInfo _file;
-		private byte[] _blockIndex;
+		internal byte[] _blockIndex;
 		private byte[] _metaIndex;
 		private BloomFilterPolicy _bloomFilterPolicy;
 		private Dictionary<byte[], BlockHandle> _blockIndexes;
@@ -106,7 +107,7 @@ namespace MiNET.LevelDB
 			return ResultStatus.NotFound;
 		}
 
-		private byte[] GetBlock(BlockHandle handle)
+		internal byte[] GetBlock(BlockHandle handle)
 		{
 			if (!_blockCache.TryGetValue(handle, out byte[] targetBlock))
 			{
@@ -253,6 +254,16 @@ namespace MiNET.LevelDB
 		{
 			_memViewStream?.Dispose();
 			_memFile?.Dispose();
+		}
+
+		public IEnumerator<BlockEntry> GetEnumerator()
+		{
+			return new TableEnumerator(this);
+		}
+
+		IEnumerator IEnumerable.GetEnumerator()
+		{
+			return GetEnumerator();
 		}
 	}
 }

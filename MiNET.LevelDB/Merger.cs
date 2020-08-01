@@ -23,16 +23,17 @@
 
 #endregion
 
-using Newtonsoft.Json;
-
 namespace MiNET.LevelDB
 {
-	public class FileMetadata
+	public class Merger
 	{
-		public ulong FileNumber { get; set; }
-		public ulong FileSize { get; set; }
-		public byte[] SmallestKey { get; set; }
-		public byte[] LargestKey { get; set; }
-		[JsonIgnore] public Table Table { get; set; }
+		public Merger()
+		{
+		}
+
+		public static void Merge()
+		{
+
+		}
 	}
 }

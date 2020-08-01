@@ -68,10 +68,22 @@ namespace MiNET.LevelDB
 			_restartOffset = stream.Position;
 		}
 
-		private ReadOnlySpan<byte> GetCurrentValue()
+		internal ReadOnlySpan<byte> GetCurrentValue()
 		{
 			_reader.Position = (int) _lastValue.Offset;
 			return _reader.Read(_lastValue.Length);
+		}
+
+		internal bool HasNext()
+		{
+			return _reader.Position < _restartOffset;
+		}
+
+		internal bool Next()
+		{
+			if (!HasNext()) return false;
+
+			return TryParseCurrentEntry();
 		}
 
 		internal bool Seek(Span<byte> key)
@@ -111,12 +123,9 @@ namespace MiNET.LevelDB
 			return false;
 		}
 
-		private void SeekToStart()
+		internal void SeekToStart()
 		{
-			// Find offset from restart index
-			var offset = GetRestartPoint(0);
-			_reader.Position = (int) offset;
-			TryParseCurrentEntry();
+			SeekToRestartPoint(0);
 		}
 
 		private void SeekToRestartPoint(int restartIndex)

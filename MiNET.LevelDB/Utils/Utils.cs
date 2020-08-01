@@ -70,6 +70,11 @@ namespace MiNET.LevelDB.Utils
 			return ToHexString(bytes.Span);
 		}
 
+		public static string ToHexString(this ReadOnlyMemory<byte> bytes)
+		{
+			return ToHexString(bytes.Span);
+		}
+
 		public static string ToHexString(this Span<byte> bytes)
 		{
 			return bytes.ToArray().HexDump(bytes.Length, cutAfterFive: true, printText: false);

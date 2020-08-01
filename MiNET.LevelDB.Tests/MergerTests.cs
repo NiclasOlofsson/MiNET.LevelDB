@@ -23,16 +23,18 @@
 
 #endregion
 
-using Newtonsoft.Json;
+using NUnit.Framework;
 
-namespace MiNET.LevelDB
+namespace MiNET.LevelDB.Tests
 {
-	public class FileMetadata
+	[TestFixture()]
+	public class MergerTests
 	{
-		public ulong FileNumber { get; set; }
-		public ulong FileSize { get; set; }
-		public byte[] SmallestKey { get; set; }
-		public byte[] LargestKey { get; set; }
-		[JsonIgnore] public Table Table { get; set; }
+		[Test()]
+		public void MergeTest()
+		{
+			var merger = new Merger();
+
+		}
 	}
 }
