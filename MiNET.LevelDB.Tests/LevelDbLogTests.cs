@@ -45,26 +45,10 @@ namespace MiNET.LevelDB.Tests
 			Log.Info($" ************************ RUNNING TEST: {TestContext.CurrentContext.Test.Name} ****************************** ");
 		}
 
-		public DirectoryInfo GetTestDirectory()
-		{
-			var directory = new DirectoryInfo(@"TestWorld");
-			string tempDir = Path.Combine(Path.GetTempPath(), $"LevelDB-{Guid.NewGuid().ToString()}");
-			Directory.CreateDirectory(tempDir);
-
-			FileInfo[] files = directory.GetFiles();
-			foreach (var file in files)
-			{
-				string newPath = Path.Combine(tempDir, file.Name);
-				file.CopyTo(newPath);
-			}
-
-			return new DirectoryInfo(tempDir);
-		}
-
 		[Test]
 		public void LevelDbSearchManifestTest()
 		{
-			DirectoryInfo directory = GetTestDirectory();
+			DirectoryInfo directory = TestUtils.GetTestDirectory();
 
 			var currentStream = File.OpenText(Path.Combine(directory.FullName, "CURRENT"));
 			string manifestFilename = currentStream.ReadLine();
@@ -91,7 +75,7 @@ namespace MiNET.LevelDB.Tests
 		{
 			// https://github.com/google/leveldb/blob/master/doc/log_format.md
 
-			DirectoryInfo directory = GetTestDirectory();
+			DirectoryInfo directory = TestUtils.GetTestDirectory();
 
 			LogReader logReader = new LogReader(new FileInfo(Path.Combine(directory.FullName, "000047.log")));
 			logReader.Open();
@@ -109,7 +93,7 @@ namespace MiNET.LevelDB.Tests
 		{
 			// https://github.com/google/leveldb/blob/master/doc/log_format.md
 
-			DirectoryInfo directory = GetTestDirectory();
+			DirectoryInfo directory = TestUtils.GetTestDirectory();
 
 			LogReader logReader = new LogReader(new FileInfo(Path.Combine(directory.FullName, "000047.log")));
 
@@ -177,7 +161,7 @@ namespace MiNET.LevelDB.Tests
 		{
 			VersionEdit version;
 			{
-				DirectoryInfo directory = GetTestDirectory();
+				DirectoryInfo directory = TestUtils.GetTestDirectory();
 
 				var currentStream = File.OpenText(Path.Combine(directory.FullName, "CURRENT"));
 				string manifestFilename = currentStream.ReadLine();

@@ -53,28 +53,12 @@ namespace MiNET.LevelDB.Tests
 			Log.Info($" ************************ RUNNING TEST: {TestContext.CurrentContext.Test.Name} ****************************** ");
 		}
 
-		public DirectoryInfo GetTestDirectory()
-		{
-			var directory = new DirectoryInfo(@"TestWorld");
-			string tempDir = Path.Combine(Path.GetTempPath(), $"LevelDB-{Guid.NewGuid().ToString()}");
-			Directory.CreateDirectory(tempDir);
-
-			FileInfo[] files = directory.GetFiles();
-			foreach (var file in files)
-			{
-				string newPath = Path.Combine(tempDir, file.Name);
-				file.CopyTo(newPath);
-			}
-
-			return new DirectoryInfo(tempDir);
-		}
-
 		[Test]
 		public void LevelDbBasicPut()
 		{
 			byte[] value;
 			byte[] result;
-			DirectoryInfo testDirectory = GetTestDirectory();
+			DirectoryInfo testDirectory = TestUtils.GetTestDirectory();
 			using (var db = new Database(testDirectory))
 			{
 				db.Open();
@@ -103,7 +87,7 @@ namespace MiNET.LevelDB.Tests
 		[Test]
 		public void LevelDbMultiPut()
 		{
-			using (var db = new Database(GetTestDirectory()))
+			using (var db = new Database(TestUtils.GetTestDirectory()))
 			{
 				db.Open();
 

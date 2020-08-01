@@ -41,23 +41,6 @@ namespace MiNET.LevelDB.Tests
 			Log.Info($" ************************ RUNNING TEST: {TestContext.CurrentContext.Test.Name} ****************************** ");
 		}
 
-		public DirectoryInfo GetTestDirectory()
-		{
-			var directory = new DirectoryInfo(@"TestWorld");
-			string tempDir = Path.Combine(Path.GetTempPath(), $"LevelDB-{Guid.NewGuid().ToString()}");
-			Directory.CreateDirectory(tempDir);
-
-			FileInfo[] files = directory.GetFiles();
-			foreach (var file in files)
-			{
-				string newPath = Path.Combine(tempDir, file.Name);
-				file.CopyTo(newPath);
-			}
-
-			return new DirectoryInfo(tempDir);
-		}
-
-
 		[Test()]
 		public void MakeSurePutWorksTest_ok()
 		{

@@ -23,7 +23,6 @@
 
 #endregion
 
-using System;
 using System.IO;
 using log4net;
 using MiNET.LevelDB.Utils;
@@ -32,33 +31,14 @@ using NUnit.Framework;
 namespace MiNET.LevelDB.Tests
 {
 	[TestFixture]
-	public class BlockSeekerTests
+	public class EnumeratorTests
 	{
-		private static readonly ILog Log = LogManager.GetLogger(typeof(BlockSeekerTests));
-
-		public DirectoryInfo GetTestDirectory(bool copy = true)
-		{
-			var directory = new DirectoryInfo(@"TestWorld");
-			string tempDir = Path.Combine(Path.GetTempPath(), $"LevelDB-{Guid.NewGuid().ToString()}");
-			Directory.CreateDirectory(tempDir);
-
-			if (copy)
-			{
-				FileInfo[] files = directory.GetFiles();
-				foreach (var file in files)
-				{
-					string newPath = Path.Combine(tempDir, file.Name);
-					file.CopyTo(newPath);
-				}
-			}
-
-			return new DirectoryInfo(tempDir);
-		}
+		private static readonly ILog Log = LogManager.GetLogger(typeof(EnumeratorTests));
 
 		[Test]
-		public void ReadAllKeysTest()
+		public void TableEnumeratorShouldIterateAllKeys()
 		{
-			var fileInfo = new FileInfo(Path.Combine(GetTestDirectory().FullName, "000050.ldb"));
+			var fileInfo = new FileInfo(Path.Combine(TestUtils.GetTestDirectory().FullName, "000050.ldb"));
 			using var table = new Table(fileInfo);
 
 			// Just initialize the block first.

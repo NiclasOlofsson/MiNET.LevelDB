@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
 using System.Reflection;
 using log4net;
 using log4net.Config;
@@ -28,4 +29,28 @@ namespace MiNET.LevelDB.Tests
 			// ...
 		}
 	}
+
+	public static class TestUtils
+	{
+		public static DirectoryInfo GetTestDirectory(bool copy = true)
+		{
+			var directory = new DirectoryInfo(@"TestWorld");
+			string tempDir = Path.Combine(Path.GetTempPath(), $"LevelDB-{Guid.NewGuid().ToString()}");
+			Directory.CreateDirectory(tempDir);
+
+			if (copy)
+			{
+				FileInfo[] files = directory.GetFiles();
+				foreach (var file in files)
+				{
+					string newPath = Path.Combine(tempDir, file.Name);
+					file.CopyTo(newPath);
+				}
+			}
+
+			return new DirectoryInfo(tempDir);
+		}
+
+	}
+
 }

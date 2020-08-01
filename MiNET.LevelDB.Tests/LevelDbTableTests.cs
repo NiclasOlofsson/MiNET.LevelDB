@@ -41,26 +41,10 @@ namespace MiNET.LevelDB.Tests
 
 		byte[] _indicatorChars = {0x64, 0x69, 0x6d, 0x65, 0x6e, 0x73, 0x6f, 0x6e, 0x30};
 
-		public DirectoryInfo GetTestDirectory()
-		{
-			var directory = new DirectoryInfo(@"TestWorld");
-			string tempDir = Path.Combine(Path.GetTempPath(), $"LevelDB-{Guid.NewGuid().ToString()}");
-			Directory.CreateDirectory(tempDir);
-
-			FileInfo[] files = directory.GetFiles();
-			foreach (var file in files)
-			{
-				string newPath = Path.Combine(tempDir, file.Name);
-				file.CopyTo(newPath);
-			}
-
-			return new DirectoryInfo(tempDir);
-		}
-
 		[Test]
 		public void LevelDbReadFindInTableTest()
 		{
-			FileInfo fileInfo = new FileInfo(Path.Combine(GetTestDirectory().FullName, "000050.ldb"));
+			FileInfo fileInfo = new FileInfo(Path.Combine(TestUtils.GetTestDirectory().FullName, "000050.ldb"));
 			ResultStatus result;
 			using (Table table = new Table(fileInfo))
 			{
@@ -79,7 +63,7 @@ namespace MiNET.LevelDB.Tests
 		[Test]
 		public void WriteLevel0TableTest()
 		{
-			using var logReader = new LogReader(new FileInfo(Path.Combine(GetTestDirectory().FullName, "000047.log")));
+			using var logReader = new LogReader(new FileInfo(Path.Combine(TestUtils.GetTestDirectory().FullName, "000047.log")));
 			var memCache = new MemCache();
 			memCache.Load(logReader);
 

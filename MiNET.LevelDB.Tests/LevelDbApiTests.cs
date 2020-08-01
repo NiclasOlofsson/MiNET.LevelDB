@@ -55,26 +55,10 @@ namespace MiNET.LevelDB.Tests
 			new byte[] {0xfa, 0xff, 0xff, 0xff, 0xe7, 0xff, 0xff, 0xff, 0x2f, 0x03,},
 		};
 
-		public DirectoryInfo GetTestDirectory()
-		{
-			var directory = new DirectoryInfo(@"TestWorld");
-			string tempDir = Path.Combine(Path.GetTempPath(), $"LevelDB-{Guid.NewGuid().ToString()}");
-			Directory.CreateDirectory(tempDir);
-
-			FileInfo[] files = directory.GetFiles();
-			foreach (var file in files)
-			{
-				string newPath = Path.Combine(tempDir, file.Name);
-				file.CopyTo(newPath);
-			}
-
-			return new DirectoryInfo(tempDir);
-		}
-
 		[Test]
 		public void LevelDbOpenFromDirectory()
 		{
-			using (var db = new Database(GetTestDirectory()))
+			using (var db = new Database(TestUtils.GetTestDirectory()))
 			{
 				db.Open();
 			}
@@ -119,7 +103,7 @@ namespace MiNET.LevelDB.Tests
 		public void LevelDbGetValueFromKey()
 		{
 			byte[] result;
-			using (var db = new Database(GetTestDirectory()))
+			using (var db = new Database(TestUtils.GetTestDirectory()))
 			{
 				db.Open();
 				result = db.Get(testKeys.Last());
@@ -134,7 +118,7 @@ namespace MiNET.LevelDB.Tests
 		public void LevelDbRepeatedGetValues()
 		{
 			Stopwatch sw;
-			using (var db = new Database(GetTestDirectory()))
+			using (var db = new Database(TestUtils.GetTestDirectory()))
 			{
 				db.Open();
 
@@ -167,7 +151,7 @@ namespace MiNET.LevelDB.Tests
 				new byte[] {0xfa, 0xff, 0xff, 0xff, 0xe7, 0xff, 0xff, 0xff, 0x2f, 0x03,}
 			};
 
-			using (var db = new Database(GetTestDirectory()))
+			using (var db = new Database(TestUtils.GetTestDirectory()))
 			{
 				db.Open();
 				foreach (byte[] testKey in values)
