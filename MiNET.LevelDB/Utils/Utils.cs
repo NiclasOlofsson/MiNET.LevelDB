@@ -54,7 +54,7 @@ namespace MiNET.LevelDB.Utils
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static ulong SequenceNumber(this Span<byte> fullKey)
+		public static ulong SequenceNumber(this ReadOnlySpan<byte> fullKey)
 		{
 			var number = BitConverter.ToUInt64(fullKey.Slice(fullKey.Length - 8, 8));
 			var sequence = number >> 8;

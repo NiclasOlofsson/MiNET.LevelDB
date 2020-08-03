@@ -182,7 +182,7 @@ namespace MiNET.LevelDB
 
 			foreach (var entry in _resultCache.OrderByDescending(kvp => kvp.Value.Sequence))
 			{
-				if (_comparator.Compare(key, entry.Key) == 0)
+				if (_comparator.Compare(key, entry.Key) == 0) // This compare on user-key
 				{
 					return new ResultStatus(entry.Value.ResultState, entry.Value.Data);
 				}

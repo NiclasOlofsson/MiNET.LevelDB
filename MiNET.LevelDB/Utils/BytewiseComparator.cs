@@ -25,12 +25,17 @@
 
 using System;
 using System.Collections.Generic;
+using log4net;
 
 namespace MiNET.LevelDB.Utils
 {
 	public class BytewiseComparator : IComparer<byte[]>
 	{
 		public string Name { get; } = "leveldb.BytewiseComparator";
+
+		public BytewiseComparator()
+		{
+		}
 
 		public int Compare(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b)
 		{
@@ -58,6 +63,8 @@ namespace MiNET.LevelDB.Utils
 
 	public class BytewiseMemoryComparator : IComparer<ReadOnlyMemory<byte>>
 	{
+		private static readonly ILog Log = LogManager.GetLogger(typeof(BytewiseMemoryComparator));
+
 		private readonly bool _userKeyOnly;
 		public string Name { get; } = "leveldb.BytewiseComparator";
 
@@ -73,8 +80,16 @@ namespace MiNET.LevelDB.Utils
 
 			if (a.Length == b.Length)
 			{
-				var result = a.SequenceCompareTo(b);
-				return result == 0 ? 0 : result > 0 ? 1 : -1;
+				int result = a.SequenceCompareTo(b);
+				if (result == 0)
+				{
+					// Reverse order for sequence compare
+					return bin.SequenceNumber().CompareTo(ain.SequenceNumber());
+				}
+				else
+				{
+					return result > 0 ? 1 : -1;
+				}
 			}
 			else
 			{

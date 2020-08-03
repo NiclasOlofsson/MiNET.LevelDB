@@ -47,7 +47,7 @@ namespace MiNET.LevelDB
 		private readonly DirectoryInfo _baseDirectory;
 		private BytewiseComparator _comparator = new BytewiseComparator();
 
-		public VersionEdit CurrentVersion { get; internal set; }
+		public Version CurrentVersion { get; internal set; }
 
 		public Manifest(DirectoryInfo baseDirectory)
 		{
@@ -60,9 +60,9 @@ namespace MiNET.LevelDB
 
 			CurrentVersion = ReadVersionEdit(reader);
 			Log.Debug($"Loading manifest");
-			Print(CurrentVersion);
+			Print(Log, CurrentVersion);
 
-			foreach (var level in CurrentVersion.NewFiles) // Search all levels for file with matching index
+			foreach (var level in CurrentVersion.Levels) // Search all levels for file with matching index
 			{
 				foreach (FileMetadata tbl in level.Value)
 				{
@@ -93,7 +93,7 @@ namespace MiNET.LevelDB
 			if (!"leveldb.BytewiseComparator".Equals(CurrentVersion.Comparator, StringComparison.InvariantCultureIgnoreCase))
 				throw new Exception($"Found record, but contains invalid or unsupported comparator: {CurrentVersion.Comparator}");
 
-			foreach (var level in CurrentVersion.NewFiles) // Search all levels for file with matching index
+			foreach (var level in CurrentVersion.Levels) // Search all levels for file with matching index
 			{
 				foreach (FileMetadata tbl in level.Value)
 				{
@@ -134,9 +134,9 @@ namespace MiNET.LevelDB
 			return table;
 		}
 
-		public static VersionEdit ReadVersionEdit(LogReader logReader)
+		public static Version ReadVersionEdit(LogReader logReader)
 		{
-			var version = new VersionEdit();
+			var version = new Version();
 
 			while (true)
 			{
@@ -202,8 +202,8 @@ namespace MiNET.LevelDB
 							fileMetadata.FileSize = fileSize;
 							fileMetadata.SmallestKey = smallest.ToArray();
 							fileMetadata.LargestKey = largest.ToArray();
-							if (!version.NewFiles.ContainsKey(level)) version.NewFiles[level] = new List<FileMetadata>();
-							version.NewFiles[level].Add(fileMetadata);
+							if (!version.Levels.ContainsKey(level)) version.Levels[level] = new List<FileMetadata>();
+							version.Levels[level].Add(fileMetadata);
 							break;
 						}
 						case LogTagType.PrevLogNumber:
@@ -226,7 +226,7 @@ namespace MiNET.LevelDB
 				deletedFiles.AddRange(versionDeletedFile);
 			}
 
-			foreach (KeyValuePair<int, List<FileMetadata>> levelKvp in version.NewFiles)
+			foreach (KeyValuePair<int, List<FileMetadata>> levelKvp in version.Levels)
 			{
 				foreach (FileMetadata newFile in levelKvp.Value.ToArray())
 				{
@@ -234,13 +234,13 @@ namespace MiNET.LevelDB
 				}
 			}
 
-			version.NewFiles = version.NewFiles.OrderBy(kvp => kvp.Key).ToDictionary(pair => pair.Key, pair => pair.Value);
+			version.Levels = version.Levels.OrderBy(kvp => kvp.Key).ToDictionary(pair => pair.Key, pair => pair.Value);
 			version.Comparator ??= "leveldb.BytewiseComparator";
 
 			return version;
 		}
 
-		public static Span<byte> EncodeVersion(VersionEdit version)
+		public static Span<byte> EncodeVersion(Version version)
 		{
 			var array = new byte[4096];
 			var buffer = new Span<byte>(array);
@@ -283,22 +283,22 @@ namespace MiNET.LevelDB
 				}
 			}
 			//	case Manifest.LogTagType.DeletedFile:
-			if (version.DeletedFiles.Count > 0)
-			{
-				foreach (KeyValuePair<int, List<ulong>> files in version.DeletedFiles)
-				{
-					foreach (ulong fileNumber in files.Value)
-					{
-						writer.WriteVarLong((ulong) LogTagType.DeletedFile);
-						writer.WriteVarLong((ulong) files.Key);
-						writer.WriteVarLong(fileNumber);
-					}
-				}
-			}
+			//if (version.DeletedFiles.Count > 0)
+			//{
+			//	foreach (KeyValuePair<int, List<ulong>> files in version.DeletedFiles)
+			//	{
+			//		foreach (ulong fileNumber in files.Value)
+			//		{
+			//			writer.WriteVarLong((ulong) LogTagType.DeletedFile);
+			//			writer.WriteVarLong((ulong) files.Key);
+			//			writer.WriteVarLong(fileNumber);
+			//		}
+			//	}
+			//}
 			//	case Manifest.LogTagType.NewFile:
-			if (version.NewFiles.Count > 0)
+			if (version.Levels.Count > 0)
 			{
-				foreach (KeyValuePair<int, List<FileMetadata>> files in version.NewFiles)
+				foreach (KeyValuePair<int, List<FileMetadata>> files in version.Levels)
 				{
 					int level = files.Key;
 					foreach (FileMetadata fileMeta in files.Value)
@@ -323,9 +323,9 @@ namespace MiNET.LevelDB
 		}
 
 
-		public static void Print(object obj)
+		public static void Print(ILog log, object obj)
 		{
-			if (!Log.IsDebugEnabled) return;
+			if (!log.IsDebugEnabled) return;
 
 			var jsonSerializerSettings = new JsonSerializerSettings
 			{
@@ -336,7 +336,7 @@ namespace MiNET.LevelDB
 			};
 
 			string result = JsonConvert.SerializeObject(obj, jsonSerializerSettings);
-			Log.Debug($"\n{result}");
+			log.Debug($"\n{result}");
 		}
 
 		public class ByteArrayConverter : JsonConverter
@@ -397,7 +397,7 @@ namespace MiNET.LevelDB
 			if (_disposed) return;
 			_disposed = true;
 
-			var tableFiles = CurrentVersion.NewFiles;
+			var tableFiles = CurrentVersion.Levels;
 			CurrentVersion = null;
 			foreach (KeyValuePair<int, List<FileMetadata>> level in tableFiles) // Search all levels for file with matching index
 			{

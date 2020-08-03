@@ -89,13 +89,14 @@ namespace MiNET.LevelDB.Tests
 			return new DirectoryInfo(tempDir);
 		}
 
-		public static byte[] FillArrayWithRandomBytes(int size)
+		public static byte[] FillArrayWithRandomBytes(int length, int max = 255, int seed = -1)
 		{
-			var bytes = new byte[size];
-			var random = new Random();
+			var bytes = new byte[length];
+			Random random = seed == -1 ? new Random() : new Random(seed);
+
 			for (int i = 0; i < bytes.Length; i++)
 			{
-				bytes[i] = (byte) random.Next(255);
+				bytes[i] = (byte) random.Next(max);
 			}
 
 			return bytes;

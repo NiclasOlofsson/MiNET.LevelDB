@@ -94,25 +94,13 @@ namespace MiNET.LevelDB.Tests
 				var random = new Random();
 				for (int i = 0; i < 5_000; i++)
 				{
-					byte[] key = FillArrayWithRandomBytes(random.Next(10, 16));
-					byte[] data = FillArrayWithRandomBytes(random.Next(100, 600)); // 32KB is maz size for a block, not that it matters for this
+					byte[] key = TestUtils.FillArrayWithRandomBytes(random.Next(10, 16));
+					byte[] data = TestUtils.FillArrayWithRandomBytes(random.Next(100, 600)); // 32KB is maz size for a block, not that it matters for this
 					db.Put(key, data);
 				}
 
 				db.Close();
 			}
-		}
-
-		public static byte[] FillArrayWithRandomBytes(int size)
-		{
-			var bytes = new byte[size];
-			var random = new Random();
-			for (int i = 0; i < bytes.Length; i++)
-			{
-				bytes[i] = (byte) random.Next(255);
-			}
-
-			return bytes;
 		}
 	}
 }

@@ -49,7 +49,7 @@ namespace MiNET.LevelDB.Tests
 
 			var options = new Options {MaxMemCacheSize = 1500L};
 
-			byte[] key = FillArrayWithRandomBytes(10);
+			byte[] key = TestUtils.FillArrayWithRandomBytes(10);
 
 			using (var db = new Database(tempDir, true, options))
 			{
@@ -59,11 +59,11 @@ namespace MiNET.LevelDB.Tests
 				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "MANIFEST-000001")), "Missing new manifest");
 				Assert.False(File.Exists(Path.Combine(tempDir.FullName, "000001.log")), "Didn't expect to have log file yet");
 
-				db.Put(key, FillArrayWithRandomBytes(2000));
+				db.Put(key, TestUtils.FillArrayWithRandomBytes(2000));
 				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "000001.log")), "Missing log");
 				Assert.IsFalse(File.Exists(Path.Combine(tempDir.FullName, "000002.log")), "Didn't expect a new log file");
 
-				db.Put(FillArrayWithRandomBytes(10), FillArrayWithRandomBytes(1000));
+				db.Put(TestUtils.FillArrayWithRandomBytes(10), TestUtils.FillArrayWithRandomBytes(1000));
 				Assert.True(File.Exists(Path.Combine(tempDir.FullName, "000002.log")), "Missing log");
 
 				byte[] result = db.Get(key);
@@ -102,18 +102,6 @@ namespace MiNET.LevelDB.Tests
 
 				db.Close();
 			}
-		}
-
-		public static byte[] FillArrayWithRandomBytes(int size)
-		{
-			var bytes = new byte[size];
-			var random = new Random();
-			for (int i = 0; i < bytes.Length; i++)
-			{
-				bytes[i] = (byte) random.Next(255);
-			}
-
-			return bytes;
 		}
 	}
 }

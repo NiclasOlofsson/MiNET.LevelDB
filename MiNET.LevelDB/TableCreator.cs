@@ -45,6 +45,8 @@ namespace MiNET.LevelDB
 		private BlockCreator _filterIndexCreator = new BlockCreator();
 		private List<byte[]> _pendingIndexes = new List<byte[]>();
 
+		public ulong CurrentSize => (ulong) _stream.Position;
+
 		public TableCreator(Stream stream)
 		{
 			_stream = stream;
@@ -56,7 +58,7 @@ namespace MiNET.LevelDB
 
 			if (_blockCreator.CurrentSize > 4096)
 			{
-				Log.Debug($"Flush because size is bigger than 4k bytes: {_blockCreator.CurrentSize}");
+				//Log.Debug($"Flush because size is bigger than 4k bytes: {_blockCreator.CurrentSize}");
 				Flush();
 			}
 		}

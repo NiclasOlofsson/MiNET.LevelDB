@@ -62,6 +62,9 @@ namespace MiNET.LevelDB
 	public class Options
 	{
 		public ulong MaxMemCacheSize { get; set; } = 4_000_000L; // 4Mb size before we rotate and compact
+		public ulong MaxNumberOfLogFiles { get; set; } = 4;
+		public ulong MaxTableFileSize { get; set; } = 2_000_000;
+		public ulong LevelSizeBaseFactor { get; set; } = 10; // the size increase factor between L and L+1 => n^level
 	}
 
 	public class Database : IDatabase
@@ -82,6 +85,7 @@ namespace MiNET.LevelDB
 
 		private ReaderWriterLockSlim _dbLock = new ReaderWriterLockSlim(LockRecursionPolicy.NoRecursion);
 		private Task _compactTask = null;
+		private Timer _compactTimer;
 
 		public Database(DirectoryInfo dbDirectory, bool createIfMissing = false, Options options = null)
 		{
@@ -234,7 +238,7 @@ namespace MiNET.LevelDB
 					// Create new MANIFEST
 
 					var manifest = new Manifest(Directory);
-					manifest.CurrentVersion = new VersionEdit()
+					manifest.CurrentVersion = new Version()
 					{
 						Comparator = "leveldb.BytewiseComparator",
 						LogNumber = 1,
@@ -284,6 +288,8 @@ namespace MiNET.LevelDB
 				// level 0 tables. However, we want to use into reusing the logs.
 				CompactMemCache(true);
 				CleanOldFiles();
+
+				_compactTimer = new Timer(state => DoCompaction(), null, 300, 300);
 			}
 			finally
 			{
@@ -300,6 +306,10 @@ namespace MiNET.LevelDB
 			_dbLock.EnterWriteLock();
 			try
 			{
+				var timeFinishWaiter = new ManualResetEvent(false);
+				_compactTimer.Dispose(timeFinishWaiter);
+				timeFinishWaiter.WaitOne();
+
 				if (_memCache != null)
 				{
 					var memCache = _memCache;
@@ -424,7 +434,7 @@ namespace MiNET.LevelDB
 
 				// Write immutable memcache to a level 0 table
 
-				VersionEdit version = _manifest.CurrentVersion;
+				Version version = _manifest.CurrentVersion;
 				ulong newFileNumber = version.GetNewFileNumber();
 
 				var tableFileInfo = new FileInfo(GetTableFileName(newFileNumber));
@@ -433,10 +443,10 @@ namespace MiNET.LevelDB
 
 				// Update version data and commit new manifest (save)
 
-				var newVersion = new VersionEdit(version);
+				var newVersion = new Version(version);
 				newVersion.LogNumber = _logNumber;
-				newVersion.AddNewFile(0, meta);
-				Manifest.Print(newVersion);
+				newVersion.AddFile(0, meta);
+				Manifest.Print(Log, newVersion);
 
 				_immutableMemCache = null;
 
@@ -459,6 +469,7 @@ namespace MiNET.LevelDB
 
 				_compactTask = null;
 				_compactReset.Set();
+				Task.Run(DoCompaction);
 			}
 			finally
 			{
@@ -487,13 +498,13 @@ namespace MiNET.LevelDB
 				smallestKey ??= key;
 				largestKey = key;
 
-				if (Log.IsDebugEnabled)
-				{
-					if (entry.Value.ResultState == ResultState.Deleted)
-						Log.Warn($"Key:{key.ToHexString()} {entry.Value.Sequence}, {entry.Value.ResultState == ResultState.Exist}, size:{entry.Value.Data?.Length ?? 0}");
-					else
-						Log.Debug($"Key:{key.ToHexString()} Seq: {entry.Value.Sequence}, Exist: {entry.Value.ResultState == ResultState.Exist}");
-				}
+				//if (Log.IsDebugEnabled)
+				//{
+				//	if (entry.Value.ResultState == ResultState.Deleted)
+				//		Log.Warn($"Key:{key.ToHexString()} {entry.Value.Sequence}, {entry.Value.ResultState == ResultState.Exist}, size:{entry.Value.Data?.Length ?? 0}");
+				//	else
+				//		Log.Debug($"Key:{key.ToHexString()} Seq: {entry.Value.Sequence}, Exist: {entry.Value.ResultState == ResultState.Exist}");
+				//}
 
 				creator.Add(key, data);
 			}
@@ -515,49 +526,71 @@ namespace MiNET.LevelDB
 			};
 		}
 
-		internal void CleanOldFiles()
+		private void DoCompaction()
 		{
-			Directory.Refresh();
-			var version = _manifest.CurrentVersion;
-
-			foreach (FileInfo file in Directory.GetFiles())
+			bool shouldReleaseLock = !_dbLock.IsWriteLockHeld;
+			if (!_dbLock.IsWriteLockHeld)
 			{
-				switch (file.Name)
-				{
-					case { } s when s.EndsWith(".log"):
-					{
-						ulong number = ulong.Parse(s.Replace(".log", ""));
-						if (number < version.LogNumber) file.Delete();
-						break;
-					}
-					case { } s when s.EndsWith(".ldb"):
-					{
-						ulong number = ulong.Parse(s.Replace(".ldb", ""));
-						break;
-					}
-					case { } s when s.StartsWith("MANIFEST-"):
-					{
-						ulong number = ulong.Parse(s.Replace("MANIFEST-", ""));
-						string currentName = new FileInfo(GetManifestFileNameFromCurrent()).Name;
-						ulong currentNumber = ulong.Parse(currentName.Replace("MANIFEST-", ""));
-						if (number < currentNumber) file.Delete();
-						break;
-					}
-				}
+				if (!_dbLock.TryEnterWriteLock(0)) return;
+			}
+
+			try
+			{
+				TryCompactLevel0();
+				TryCompactLevelN();
+			}
+			catch (Exception e)
+			{
+				Log.Error(e);
+				throw;
+			}
+			finally
+			{
+				if (shouldReleaseLock) _dbLock.ExitWriteLock();
 			}
 		}
 
-		internal int TEST_MergeLevel0()
+		private void TryCompactLevel0()
 		{
-			Log.Debug($"Trying to do merge..");
+			Log.Debug($"Trying to do merge compact of level 0 to level 1..");
 
-			VersionEdit version = _manifest.CurrentVersion;
+			if (!_dbLock.IsWriteLockHeld)
+			{
+				Log.Error("Panic!");
+				throw new PanicException("Tried to compact without holding a write lock. Abort!");
+			}
+
+			Version version = _manifest.CurrentVersion;
+			List<FileMetadata> filesToCompact = version.GetFiles(0);
+
+			if (filesToCompact.Count <= (int) Options.MaxNumberOfLogFiles)
+			{
+				Log.Debug($"No level 0 to 1 compact needed at this time.");
+				return;
+			}
+
+			byte[] smallestKey = null;
+			byte[] largestKey = null;
+			foreach (FileMetadata metadata in filesToCompact.OrderBy(f => f.SmallestKey, new BytewiseComparator()))
+			{
+				smallestKey ??= metadata.SmallestKey;
+				largestKey = metadata.LargestKey;
+			}
+			//byte[] smallestKey = filesToCompact.OrderBy(f => f.SmallestKey, new BytewiseComparator()).FirstOrDefault()?.SmallestKey;
+			//byte[] largestKey = filesToCompact.OrderByDescending(f => f.LargestKey, new BytewiseComparator()).FirstOrDefault()?.LargestKey;
+
+			Log.Debug($"Smallest Key: {smallestKey.ToHexString()}, Largest Key: {largestKey.ToHexString()}");
+
+			// Add overlapping level 1 files
+			List<FileMetadata> overlappingFiles = version.GetOverlappingFiles(1, smallestKey, largestKey);
+			filesToCompact.AddRange(overlappingFiles);
+			Log.Warn($"Overlapping files: {overlappingFiles.Count}");
+
 			var files = new List<TableEnumerator>();
-			List<FileMetadata> level0 = version.NewFiles[0];
-			foreach (FileMetadata metadata in level0)
+			foreach (FileMetadata metadata in filesToCompact.OrderBy(f => f.SmallestKey, new BytewiseComparator()))
 			{
 				metadata.Table ??= _manifest.GetTable(metadata.FileNumber);
-				metadata.Table.Get(Span<byte>.Empty);
+				metadata.Table.Initialize();
 				Log.Debug($"Add enumerator for {metadata.FileNumber}, idx len {metadata.Table._blockIndex.Length}");
 				files.Add((TableEnumerator) metadata.Table.GetEnumerator());
 			}
@@ -565,39 +598,27 @@ namespace MiNET.LevelDB
 			var mergeEnumerator = new MergeEnumerator(files);
 			int count = 0;
 
-			var meta = new FileMetadata() {FileNumber = version.GetNewFileNumber()};
-
-			var newFileInfo = new FileInfo(GetTableFileName(meta.FileNumber));
-
-			using FileStream fileStream = newFileInfo.Create();
-			var creator = new TableCreator(fileStream);
-
-			byte[] smallestKey = null;
-			byte[] largestKey = null;
-			foreach (BlockEntry entry in mergeEnumerator)
+			var newFiles = new List<FileMetadata>();
+			while (true)
 			{
-				count++;
-				ReadOnlyMemory<byte> key = entry.Key;
-				Log.Debug($"{key.ToHexString()}");
-				creator.Add(key.Span, entry.Data.Span);
-				smallestKey ??= key.ToArray();
-				largestKey = key.ToArray();
+				FileMetadata newFileMeta = WriteMergedTable(version, mergeEnumerator, ref count);
+				if (newFileMeta.SmallestKey == null) break;
+				newFiles.Add(newFileMeta);
 			}
-			meta.SmallestKey = smallestKey;
-			meta.LargestKey = largestKey;
-			newFileInfo.Refresh();
-			meta.FileSize = (ulong) newFileInfo.Length;
 
-			creator.Finish();
-
-			var newVersion = new VersionEdit(version);
+			var newVersion = new Version(version);
 			newVersion.LogNumber = _logNumber;
-			foreach (FileMetadata fileMetadata in level0.ToArray())
+			foreach (FileMetadata originalFile in filesToCompact)
 			{
-				newVersion.AddDeletedFile(0, fileMetadata.FileNumber);
+				newVersion.RemoveFile(overlappingFiles.Contains(originalFile) ? 1 : 0, originalFile.FileNumber);
 			}
-			newVersion.AddNewFile(1, meta);
-			Manifest.Print(newVersion);
+
+			foreach (var fileMetadata in newFiles)
+			{
+				newVersion.AddFile(1, fileMetadata);
+			}
+
+			Manifest.Print(Log, newVersion);
 
 			// Update manifest with new version
 			_manifest.CurrentVersion = newVersion;
@@ -616,8 +637,209 @@ namespace MiNET.LevelDB
 
 			CleanOldFiles();
 
+			Log.Debug($"Done with merge compact of level 0 to level 1..");
+		}
 
-			return count;
+		private void TryCompactLevelN()
+		{
+			Log.Debug($"Trying to do merge compact of level n to level ..");
+
+			if (!_dbLock.IsWriteLockHeld)
+			{
+				Log.Error("Panic!");
+				throw new PanicException("Tried to compact without holding a write lock. Abort!");
+			}
+
+			Version version = _manifest.CurrentVersion;
+			bool manifestIsDirty = false;
+			foreach (KeyValuePair<int, List<FileMetadata>> kvp in version.Levels.Where(kvp => kvp.Key > 0).ToArray())
+			{
+				int level = kvp.Key;
+				List<FileMetadata> files = kvp.Value;
+
+				if (files.Count > Math.Pow(Options.LevelSizeBaseFactor, level))
+				{
+					manifestIsDirty = true;
+					Log.Warn($"Want to compact level {level} with {files.Count} files.");
+
+					while (true)
+					{
+						FileMetadata fileToCompact = GetNextFileToCompactForLevel(files, version.GetCompactPointer(level));
+
+						if (fileToCompact == null) break; // Nah, shouldn't happen, right.
+
+						if (files.Count <= Math.Pow(Options.LevelSizeBaseFactor, level)) break;
+
+						List<FileMetadata> overlappingFiles = version.GetOverlappingFiles(level + 1, fileToCompact.SmallestKey, fileToCompact.LargestKey);
+						if (overlappingFiles.Count == 0)
+						{
+							// Level+1 has no files overlapping. So we can basically just move this file up the level.
+							Log.Warn($"Want to compact level {level}, file {fileToCompact.FileNumber} and level {level + 1} had No overlapping files. Simple move.");
+							version.RemoveFile(level, fileToCompact.FileNumber);
+							version.AddFile(level + 1, fileToCompact);
+							version.SetCompactPointer(level, fileToCompact.LargestKey);
+						}
+						else
+						{
+							Log.Warn($"Want to compact level {level}, file {fileToCompact.FileNumber} and level {level + 1} had {overlappingFiles.Count} overlapping files");
+							var mergeFiles = new List<FileMetadata>(overlappingFiles);
+							mergeFiles.Add(fileToCompact);
+
+							var tableEnumerators = new List<TableEnumerator>();
+							foreach (FileMetadata metadata in mergeFiles.OrderBy(f => f.SmallestKey, new BytewiseComparator()))
+							{
+								metadata.Table ??= _manifest.GetTable(metadata.FileNumber);
+								metadata.Table.Initialize();
+								Log.Debug($"Add enumerator for {metadata.FileNumber}, idx len {metadata.Table._blockIndex.Length}");
+								tableEnumerators.Add((TableEnumerator) metadata.Table.GetEnumerator());
+							}
+
+							var mergeEnumerator = new MergeEnumerator(tableEnumerators);
+							var newFiles = new List<FileMetadata>();
+							int count = 0;
+							while (true)
+							{
+								FileMetadata newFileMeta = WriteMergedTable(version, mergeEnumerator, ref count);
+								if (newFileMeta.SmallestKey == null) break;
+								version.SetCompactPointer(level, newFileMeta.LargestKey);
+								newFiles.Add(newFileMeta);
+							}
+
+							foreach (FileMetadata originalFile in mergeFiles)
+							{
+								version.RemoveFile(overlappingFiles.Contains(originalFile) ? level + 1 : level, originalFile.FileNumber);
+							}
+
+							foreach (var fileMetadata in newFiles)
+							{
+								version.AddFile(level + 1, fileMetadata);
+							}
+						}
+					}
+
+					//break;
+				}
+			}
+
+			if (manifestIsDirty)
+			{
+				var manifestFileName = new FileInfo(GetManifestFileName(_manifest.CurrentVersion.GetNewFileNumber()));
+				using (var writer = new LogWriter(manifestFileName))
+				{
+					_manifest.Save(writer);
+				}
+
+				using (StreamWriter currentStream = File.CreateText(GetCurrentFileName()))
+				{
+					currentStream.WriteLine(manifestFileName.Name);
+					currentStream.Close();
+				}
+
+				Manifest.Print(Log, version);
+
+				CleanOldFiles();
+			}
+
+			Log.Debug($"Done merge compact of level n to level ..");
+		}
+
+		public FileMetadata GetNextFileToCompactForLevel(List<FileMetadata> files, byte[] lastCompactionKey)
+		{
+			var comparator = new BytewiseMemoryComparator();
+
+			foreach (FileMetadata file in files)
+			{
+				if (comparator.Compare(file.SmallestKey, lastCompactionKey) >= 0) return file;
+			}
+
+			return files.FirstOrDefault();
+		}
+
+		private FileMetadata WriteMergedTable(Version version, MergeEnumerator mergeEnumerator, ref int count)
+		{
+			byte[] smallestKey;
+			byte[] largestKey;
+			var newFileMeta = new FileMetadata {FileNumber = version.GetNewFileNumber()};
+			var newFileInfo = new FileInfo(GetTableFileName(newFileMeta.FileNumber));
+			using FileStream newFileStream = newFileInfo.Create();
+			var creator = new TableCreator(newFileStream);
+
+			smallestKey = null;
+			largestKey = null;
+
+
+			ReadOnlyMemory<byte> prevKey = null;
+			while (mergeEnumerator.MoveNext())
+			{
+				BlockEntry entry = mergeEnumerator.Current;
+
+				count++;
+				ReadOnlyMemory<byte> key = entry.Key;
+				if (prevKey.Length != 0)
+				{
+					if (prevKey.Span.UserKey().SequenceEqual(key.Span.UserKey()))
+					{
+						Log.Warn($"Duplicate keys - Prev Key: {prevKey.ToHexString()}, Key: {key.ToHexString()}");
+						continue;
+					}
+				}
+
+				prevKey = key;
+				//Log.Debug($"{key.ToHexString()}");
+
+				creator.Add(key.Span, entry.Data.Span);
+				smallestKey ??= key.ToArray();
+				largestKey = key.ToArray();
+
+				if (creator.CurrentSize > Options.MaxTableFileSize) break;
+			}
+
+			newFileMeta.SmallestKey = smallestKey;
+			newFileMeta.LargestKey = largestKey;
+			newFileInfo.Refresh();
+			newFileMeta.FileSize = (ulong) newFileInfo.Length;
+
+			creator.Finish();
+			return newFileMeta;
+		}
+
+		internal void CleanOldFiles()
+		{
+			Directory.Refresh();
+			Version version = _manifest.CurrentVersion;
+
+			foreach (FileInfo file in Directory.GetFiles())
+			{
+				switch (file.Name)
+				{
+					case { } s when s.EndsWith(".log"):
+					{
+						ulong number = ulong.Parse(s.Replace(".log", ""));
+						if (number < version.LogNumber) file.Delete();
+						break;
+					}
+					case { } s when s.EndsWith(".ldb"):
+					{
+						ulong number = ulong.Parse(s.Replace(".ldb", ""));
+						if (number >= version.NextFileNumber) continue;
+
+						FileMetadata meta = version.Levels.FirstOrDefault(kvp => kvp.Value.Any(f => f.FileNumber == number)).Value?.FirstOrDefault(f => f.FileNumber == number);
+						if (meta == null)
+						{
+							file.Delete();
+						}
+						break;
+					}
+					case { } s when s.StartsWith("MANIFEST-"):
+					{
+						ulong number = ulong.Parse(s.Replace("MANIFEST-", ""));
+						string currentName = new FileInfo(GetManifestFileNameFromCurrent()).Name;
+						ulong currentNumber = ulong.Parse(currentName.Replace("MANIFEST-", ""));
+						if (number < currentNumber) file.Delete();
+						break;
+					}
+				}
+			}
 		}
 	}
 

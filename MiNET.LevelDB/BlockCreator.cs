@@ -96,7 +96,7 @@ namespace MiNET.LevelDB
 			_stream.Write(BitConverter.GetBytes((uint) _restarts.Count));
 			byte[] result = _stream.ToArray();
 
-			Log.Warn($"Wrote {_restarts.Count}");
+			//Log.Debug($"Wrote {_restarts.Count}");
 
 			// Reset
 			_stream.Position = 0;

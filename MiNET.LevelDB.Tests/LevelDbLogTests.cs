@@ -159,7 +159,7 @@ namespace MiNET.LevelDB.Tests
 		[Test]
 		public void LevelDbWriteLogTest()
 		{
-			VersionEdit version;
+			Version version;
 			{
 				DirectoryInfo directory = TestUtils.GetTestDirectory();
 
@@ -212,11 +212,11 @@ namespace MiNET.LevelDB.Tests
 			var operations = new KeyValuePair<byte[], MemCache.ResultCacheEntry>[3];
 			for (int i = 0; i < 3; i++)
 			{
-				byte[] key = FillArrayWithRandomBytes(20);
+				byte[] key = TestUtils.FillArrayWithRandomBytes(20);
 				var entry = new MemCache.ResultCacheEntry();
 				entry.ResultState = ResultState.Exist;
 				entry.Sequence = 10;
-				entry.Data = FillArrayWithRandomBytes(32768); // 32KB is maz size for a block, not that it matters for this
+				entry.Data = TestUtils.FillArrayWithRandomBytes(32768); // 32KB is maz size for a block, not that it matters for this
 				operations[i] = new KeyValuePair<byte[], MemCache.ResultCacheEntry>(key, entry);
 			}
 
@@ -282,15 +282,6 @@ namespace MiNET.LevelDB.Tests
 				Assert.AreEqual(expectedData, entry.Value.Data, "Data");
 				j++;
 			}
-		}
-
-		private byte[] FillArrayWithRandomBytes(int size)
-		{
-			var bytes = new byte[size];
-			var random = new Random();
-			random.NextBytes(bytes);
-
-			return bytes;
 		}
 	}
 }

@@ -33,9 +33,9 @@ using NUnit.Framework;
 namespace MiNET.LevelDB.Tests
 {
 	[TestFixture]
-	public class EnumeratorTests
+	public class CompactingTests
 	{
-		private static readonly ILog Log = LogManager.GetLogger(typeof(EnumeratorTests));
+		private static readonly ILog Log = LogManager.GetLogger(typeof(CompactingTests));
 
 		[Test]
 		public void TableEnumeratorShouldIterateAllKeys()
@@ -44,7 +44,7 @@ namespace MiNET.LevelDB.Tests
 			using var table = new Table(fileInfo);
 
 			// Just initialize the block first.
-			table.Get(new byte[] {0x00});
+			table.Initialize();
 
 			int count = 0;
 			foreach (BlockEntry blockEntry in table)
@@ -58,43 +58,52 @@ namespace MiNET.LevelDB.Tests
 		}
 
 		[Test]
-		public void Level0TableEnumeratorShouldIterateAllKeysInOrder()
+		public void CompactAllLevels()
 		{
 			DirectoryInfo dir = TestUtils.GetTestDirectory(false);
 
 			// Setup new database and generate values enough to create 2 level 0 tables with overlapping keys.
 			// We use this when we run the real test.
-			using (var db = new Database(dir, true))
+			using (var db = new Database(dir, true, new Options(){LevelSizeBaseFactor = 3}))
 			{
 				db.Open();
 
-				var random = new Random();
 				for (int i = 0; i < 8000; i++)
 				{
-					//byte[] key = TestUtils.FillArrayWithRandomBytes(random.Next(10, 16));
-					//byte[] data = TestUtils.FillArrayWithRandomBytes(random.Next(500, 1500));
 					byte[] key = TestUtils.FillArrayWithRandomBytes(14);
-					byte[] data = TestUtils.FillArrayWithRandomBytes(1000);
+					byte[] data = TestUtils.FillArrayWithRandomBytes(1000, 128);
 					db.Put(key, data);
 				}
 
-				{
-					int count = db.TEST_MergeLevel0();
-					Assert.AreEqual(7752, count); // Some are in memcache and wasn't flushed. It's ok.
-				}
+				//{
+				//	int count = db.TryCompactLevel0();
+				//	Assert.AreEqual(7752, count); // Some are in memcache and wasn't flushed. It's ok.
+				//}
 
 				for (int i = 0; i < 4000; i++)
 				{
-					//byte[] key = TestUtils.FillArrayWithRandomBytes(random.Next(10, 16));
-					//byte[] data = TestUtils.FillArrayWithRandomBytes(random.Next(500, 1500));
 					byte[] key = TestUtils.FillArrayWithRandomBytes(14);
-					byte[] data = TestUtils.FillArrayWithRandomBytes(1000);
+					byte[] data = TestUtils.FillArrayWithRandomBytes(1000, 128);
 					db.Put(key, data);
 				}
 
+				//{
+				//	int count = db.TryCompactLevel0();
+				//	// This count is the combined records for both level 0 (newly added)
+				//	// and level 1 (the previously compacted file(s).
+				//	// Some are in memcache and wasn't flushed. It's ok. 
+				//	Assert.AreEqual(11628, count);
+				//	db.TryCompactLevelN();
+				//}
+
+				for (int j = 0; j < 5; j++)
 				{
-					int count = db.TEST_MergeLevel0();
-					Assert.AreEqual(3876, count); // Some are in memcache and wasn't flushed. It's ok.
+					for (int i = 0; i < 8000; i++)
+					{
+						byte[] key = TestUtils.FillArrayWithRandomBytes(14);
+						byte[] data = TestUtils.FillArrayWithRandomBytes(1000, 128);
+						db.Put(key, data);
+					}
 				}
 
 				db.Close();

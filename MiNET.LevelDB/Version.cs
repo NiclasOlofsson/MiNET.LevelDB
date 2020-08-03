@@ -23,12 +23,15 @@
 
 #endregion
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using log4net.Core;
+using MiNET.LevelDB.Utils;
 
 namespace MiNET.LevelDB
 {
-	public class VersionEdit
+	public class Version
 	{
 		public string Comparator { get; set; }
 		public ulong LogNumber { get; set; }
@@ -38,7 +41,7 @@ namespace MiNET.LevelDB
 
 		public Dictionary<int, byte[]> CompactPointers { get; set; } = new Dictionary<int, byte[]>();
 		public Dictionary<int, List<ulong>> DeletedFiles { get; set; } = new Dictionary<int, List<ulong>>();
-		public Dictionary<int, List<FileMetadata>> NewFiles { get; set; } = new Dictionary<int, List<FileMetadata>>();
+		public Dictionary<int, List<FileMetadata>> Levels { get; set; } = new Dictionary<int, List<FileMetadata>>();
 
 		private object _seqLock = new object();
 
@@ -58,33 +61,69 @@ namespace MiNET.LevelDB
 			}
 		}
 
-		public void AddNewFile(int level, FileMetadata meta)
+		public byte[] GetCompactPointer(int level)
 		{
-			if (!NewFiles.ContainsKey(level)) NewFiles[level] = new List<FileMetadata>();
+			if (!CompactPointers.ContainsKey(level)) return null;
 
-			NewFiles[level].Add(meta);
+			return CompactPointers[level];
 		}
 
-		public void AddDeletedFile(int level, ulong fileNumber)
+		public void SetCompactPointer(int level, byte[] key)
 		{
+			CompactPointers[level] = key;
+		}
+
+		public void RemoveCompactPointer(int level)
+		{
+			CompactPointers.Remove(level);
+		}
+
+		public List<FileMetadata> GetFiles(int level)
+		{
+			if (!Levels.ContainsKey(level)) Levels[level] = new List<FileMetadata>();
+
+			return new List<FileMetadata>(Levels[level]);
+		}
+
+		public List<FileMetadata> GetOverlappingFiles(int level, byte[] smallestKey, byte[] largestKey)
+		{
+			if (!Levels.ContainsKey(level)) return new List<FileMetadata>();
+
+			var overlappingFiles = new List<FileMetadata>();
+			var comparator = new BytewiseComparator();
+			foreach (FileMetadata metadata in GetFiles(level))
+			{
+				if (comparator.Compare(metadata.SmallestKey, largestKey) <= 0 && comparator.Compare(metadata.LargestKey, smallestKey) >= 0)
+				{
+					overlappingFiles.Add(metadata);
+				}
+			}
+
+			return overlappingFiles;
+		}
+
+
+		public void AddFile(int level, FileMetadata meta)
+		{
+			if (!Levels.ContainsKey(level)) Levels[level] = new List<FileMetadata>();
+
+			Levels[level].Add(meta);
+		}
+
+		public void RemoveFile(int level, ulong fileNumber)
+		{
+			List<FileMetadata> levelFiles = GetFiles(level);
+			FileMetadata file = levelFiles.FirstOrDefault(f => f.FileNumber == fileNumber);
+			if (file == null) throw new Exception($"Expected to find file {fileNumber} in level {level}, but did not");
+
+			Levels[level].Remove(file);
+			file.Table?.Dispose();
+
 			if (!DeletedFiles.ContainsKey(level)) DeletedFiles[level] = new List<ulong>();
-			if (level > 0)
-			{
-				List<FileMetadata> newFiles = NewFiles[level - 1];
-				FileMetadata file = newFiles.FirstOrDefault(f => f.FileNumber == fileNumber);
-				if (file != null) newFiles.Remove(file);
-			}
-
-			{
-				List<FileMetadata> newFiles = NewFiles[level];
-				FileMetadata file = newFiles.FirstOrDefault(f => f.FileNumber == fileNumber);
-				if (file != null) newFiles.Remove(file);
-			}
-
-			DeletedFiles[level].Add(fileNumber);
+			DeletedFiles[level].Add(file.FileNumber);
 		}
 
-		public VersionEdit()
+		public Version()
 		{
 		}
 
@@ -92,7 +131,7 @@ namespace MiNET.LevelDB
 		///     Shallow copy constructor.
 		/// </summary>
 		/// <param name="original"></param>
-		public VersionEdit(VersionEdit original)
+		public Version(Version original)
 		{
 			Comparator = original.Comparator;
 			LogNumber = original.LogNumber;
@@ -101,7 +140,7 @@ namespace MiNET.LevelDB
 			LastSequenceNumber = original.LastSequenceNumber;
 			CompactPointers = new Dictionary<int, byte[]>(original.CompactPointers);
 			DeletedFiles = new Dictionary<int, List<ulong>>(original.DeletedFiles);
-			NewFiles = new Dictionary<int, List<FileMetadata>>(original.NewFiles);
+			Levels = new Dictionary<int, List<FileMetadata>>(original.Levels);
 		}
 	}
 }

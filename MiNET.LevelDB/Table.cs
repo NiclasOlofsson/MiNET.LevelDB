@@ -70,6 +70,27 @@ namespace MiNET.LevelDB
 			// 3) Match the key and return the data
 
 			// Search block index
+			Initialize();
+
+			BlockHandle handle = FindBlockHandleInBlockIndex(key);
+			if (handle == null)
+			{
+				Log.Error($"Expected to find block with key/value, but found none.");
+				return ResultStatus.NotFound;
+			}
+
+			if (_bloomFilterPolicy?.KeyMayMatch(key, handle.Offset) ?? true)
+			{
+				byte[] targetBlock = GetBlock(handle);
+
+				return SeekKeyInBlockData(key, targetBlock);
+			}
+
+			return ResultStatus.NotFound;
+		}
+
+		internal void Initialize()
+		{
 			if (_blockIndex == null || _metaIndex == null)
 			{
 				Footer footer;
@@ -92,22 +113,6 @@ namespace MiNET.LevelDB
 					_bloomFilterPolicy.Parse(filterBlock);
 				}
 			}
-
-			BlockHandle handle = FindBlockHandleInBlockIndex(key);
-			if (handle == null)
-			{
-				Log.Error($"Expected to find block with key/value, but found none.");
-				return ResultStatus.NotFound;
-			}
-
-			if (_bloomFilterPolicy?.KeyMayMatch(key, handle.Offset) ?? true)
-			{
-				byte[] targetBlock = GetBlock(handle);
-
-				return SeekKeyInBlockData(key, targetBlock);
-			}
-
-			return ResultStatus.NotFound;
 		}
 
 		internal byte[] GetBlock(BlockHandle handle)
@@ -256,7 +261,9 @@ namespace MiNET.LevelDB
 		public void Dispose()
 		{
 			_memViewStream?.Dispose();
+			_memViewStream = null;
 			_memFile?.Dispose();
+			_memFile = null;
 		}
 
 		public IEnumerator<BlockEntry> GetEnumerator()

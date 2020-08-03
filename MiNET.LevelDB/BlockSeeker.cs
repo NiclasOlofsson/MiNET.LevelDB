@@ -63,7 +63,7 @@ namespace MiNET.LevelDB
 			var stream = new SpanReader(_blockData);
 			stream.Seek(-4, SeekOrigin.End);
 			_restartCount = (int) stream.ReadUInt32();
-			Log.Warn($"Got {_restartCount} restart points");
+			//Log.Debug($"Got {_restartCount} restart points");
 			stream.Seek(-((1 + _restartCount) * sizeof(uint)), SeekOrigin.End);
 			_restartOffset = stream.Position;
 		}

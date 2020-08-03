@@ -108,7 +108,7 @@ namespace MiNET.LevelDB.Tests
 			// This is just an off-topic experiment. Allocation free compression, reusing the same buffer for input
 			// and output. Also works for decompression if uncompressed size is know beforehand.
 
-			var buffer = FillArrayWithRandomBytes(1234, 10000, 10).AsMemory();
+			var buffer = TestUtils.FillArrayWithRandomBytes(10000, 10, 1234).AsMemory();
 			var originalBuffer = buffer.ToArray();
 			var firstBytes = buffer.Slice(0, 10).ToArray();
 
@@ -136,19 +136,6 @@ namespace MiNET.LevelDB.Tests
 			Assert.AreEqual(firstBytes.ToHexString(), inFinalBytes.ToHexString());
 			Assert.AreEqual(originalBuffer.ToHexString(), outStream.GetBuffer().ToHexString());
 		}
-
-		public static byte[] FillArrayWithRandomBytes(int seed, int size, int max)
-		{
-			var bytes = new byte[size];
-			var random = new Random(seed);
-			for (int i = 0; i < bytes.Length; i++)
-			{
-				bytes[i] = (byte) random.Next(max);
-			}
-
-			return bytes;
-		}
-
 
 		public class BufferStream : Stream
 		{

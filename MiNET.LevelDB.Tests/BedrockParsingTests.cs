@@ -16,7 +16,7 @@ namespace MiNET.LevelDB.Tests
 		[Test]
 		public void LevelDbGetValueFromKey()
 		{
-			var db = new Database(new DirectoryInfo("My World.mcworld"));
+			using var db = new Database(new DirectoryInfo("My World.mcworld"));
 			db.Open();
 
 			int x = 0;
@@ -38,7 +38,7 @@ namespace MiNET.LevelDB.Tests
 		[Test]
 		public void LevelDbGetValueFromMissingKey()
 		{
-			var db = new Database(new DirectoryInfo(@"C:\Development\Other\bedrock-server-1.14.1.4\worlds\BedrockGeneratedLevel\db"));
+			using var db = new Database(new DirectoryInfo(@"C:\Development\Other\bedrock-server-1.14.1.4\worlds\BedrockGeneratedLevel\db"));
 			db.Open();
 
 			int x = 15;
