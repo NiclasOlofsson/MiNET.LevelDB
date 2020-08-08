@@ -43,18 +43,17 @@ namespace MiNET.LevelDB
 		internal byte[] _blockIndex;
 		private byte[] _metaIndex;
 		private BloomFilterPolicy _bloomFilterPolicy;
-		private Dictionary<byte[], BlockHandle> _blockIndexes;
 		private BytewiseComparator _comparator = new BytewiseComparator();
 		private Dictionary<BlockHandle, byte[]> _blockCache = new Dictionary<BlockHandle, byte[]>();
 		private MemoryMappedFile _memFile;
 		private Stream _memViewStream;
+		private bool _initialized;
+		public bool Initialized => _initialized;
 
 		public Table(FileInfo file)
 		{
 			_file = file;
 			_memFile = MemoryMappedFile.CreateFromFile(_file.FullName, FileMode.Open);
-			//_memViewStream = _memFile.CreateViewStream(0, _file.Length);
-			//_memViewStream = _file.OpenRead();
 		}
 
 		public ResultStatus Get(Span<byte> key)
@@ -75,7 +74,7 @@ namespace MiNET.LevelDB
 			BlockHandle handle = FindBlockHandleInBlockIndex(key);
 			if (handle == null)
 			{
-				Log.Error($"Expected to find block with key/value, but found none.");
+				if (Log.IsDebugEnabled) Log.Warn($"Key was in range for table, but found no exact match in file {_file.Name}");
 				return ResultStatus.NotFound;
 			}
 
@@ -91,8 +90,12 @@ namespace MiNET.LevelDB
 
 		internal void Initialize()
 		{
+			if (_initialized) return;
+
 			if (_blockIndex == null || _metaIndex == null)
 			{
+				Log.Debug($"Initialize table {_file.Name}");
+
 				Footer footer;
 				using (MemoryMappedViewStream stream = _memFile.CreateViewStream(_file.Length - Footer.FooterLength, Footer.FooterLength, MemoryMappedFileAccess.Read))
 				{
@@ -112,6 +115,8 @@ namespace MiNET.LevelDB
 					_bloomFilterPolicy = new BloomFilterPolicy();
 					_bloomFilterPolicy.Parse(filterBlock);
 				}
+
+				_initialized = true;
 			}
 		}
 
@@ -140,9 +145,9 @@ namespace MiNET.LevelDB
 
 			while (reader.Position < reader.Length - indexSize)
 			{
-				var shared = reader.ReadVarLong();
-				var nonShared = reader.ReadVarLong();
-				var size = reader.ReadVarLong();
+				ulong shared = reader.ReadVarLong();
+				ulong nonShared = reader.ReadVarLong();
+				ulong size = reader.ReadVarLong();
 
 				//TODO: This is pretty wrong since it assumes no sharing. However, it works so far.
 				if (shared != 0) throw new Exception($"Got {shared} shared bytes for index block. We can't handle that right now.");
@@ -161,15 +166,6 @@ namespace MiNET.LevelDB
 
 		private BlockHandle FindBlockHandleInBlockIndex(Span<byte> key)
 		{
-			_blockIndexes ??= new Dictionary<byte[], BlockHandle>();
-
-			// cache seriously important for performance
-			//TODO: This cache isn't working when values are almost same. Fails on bedrock worlds when getting version and chunks.
-			//foreach (var blockIndex in _blockIndexes)
-			//{
-			//	if (_comparator.Compare(blockIndex.Key.AsSpan().UserKey(), key) >= 0) return blockIndex.Value;
-			//}
-
 			var seeker = new BlockSeeker(_blockIndex);
 			if (seeker.Seek(key))
 			{
@@ -181,7 +177,6 @@ namespace MiNET.LevelDB
 					if (value != null)
 					{
 						var handle = BlockHandle.ReadBlockHandle(value);
-						_blockIndexes.Add(foundKey.ToArray(), handle);
 						return handle;
 					}
 				}
@@ -222,10 +217,10 @@ namespace MiNET.LevelDB
 						Log.Warn($"Found unknown key type: {keyType}");
 					}
 				}
-				else
-				{
-					Log.Warn($"Did not match search key: {key.ToHexString()} with {foundKey.ToHexString()}");
-				}
+				//else
+				//{
+				//	Log.Warn($"Did not match search key: {key.ToHexString()} with {foundKey.ToHexString()}");
+				//}
 			}
 
 			return ResultStatus.NotFound;

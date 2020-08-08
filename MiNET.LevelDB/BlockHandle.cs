@@ -89,7 +89,7 @@ namespace MiNET.LevelDB
 
 			verifyChecksum = verifyChecksum || Database.ParanoidMode;
 
-			byte[] data = new byte[length];
+			var data = new byte[length];
 			stream.Seek((long) 0, SeekOrigin.Begin);
 			stream.Read(data, 0, (int) length);
 
@@ -125,7 +125,7 @@ namespace MiNET.LevelDB
 					{
 						if (dataStream.ReadByte() != 0x78)
 						{
-							throw new InvalidDataException("Incorrect ZLib header. Expected 0x78 0x9C");
+							throw new InvalidDataException("Incorrect ZLib header. Expected 0x78 0xnn");
 						}
 						dataStream.ReadByte();
 					}
@@ -133,7 +133,7 @@ namespace MiNET.LevelDB
 					using (var defStream2 = new DeflateStream(dataStream, CompressionMode.Decompress))
 					{
 						// Get actual package out of bytes
-						using (MemoryStream destination = new MemoryStream())
+						using (var destination = new MemoryStream())
 						{
 							defStream2.CopyTo(destination);
 							data = destination.ToArray();

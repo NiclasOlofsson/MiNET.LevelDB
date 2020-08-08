@@ -24,7 +24,6 @@
 #endregion
 
 using System;
-using System.Diagnostics;
 using System.IO;
 using log4net;
 using MiNET.LevelDB.Utils;
@@ -63,7 +62,6 @@ namespace MiNET.LevelDB
 			var stream = new SpanReader(_blockData);
 			stream.Seek(-4, SeekOrigin.End);
 			_restartCount = (int) stream.ReadUInt32();
-			//Log.Debug($"Got {_restartCount} restart points");
 			stream.Seek(-((1 + _restartCount) * sizeof(uint)), SeekOrigin.End);
 			_restartOffset = stream.Position;
 		}
@@ -76,7 +74,7 @@ namespace MiNET.LevelDB
 
 		internal bool HasNext()
 		{
-			return _reader.Position < _restartOffset;
+			return Key != null && !Key.IsEmpty;
 		}
 
 		internal bool Next()
@@ -88,6 +86,8 @@ namespace MiNET.LevelDB
 
 		internal bool Seek(Span<byte> key)
 		{
+			if (_restartCount == 0) return false;
+
 			// binary search for key
 
 			int left = 0;
@@ -95,7 +95,7 @@ namespace MiNET.LevelDB
 
 			while (left < right)
 			{
-				var mid = (left + right + 1) / 2;
+				int mid = (left + right + 1) / 2;
 				SeekToRestartPoint(mid);
 				if (_comparator.Compare(Key, key) < 0)
 				{
@@ -109,16 +109,33 @@ namespace MiNET.LevelDB
 
 			// linear search in current restart index
 
-			SeekToRestartPoint(left);
-			do
+			for (SeekToRestartPoint(left); HasNext(); Next())
 			{
-				if (Key == null || Key.IsEmpty) return false;
+				if (_comparator.Compare(Key, key) >= 0) return true;
+			}
 
-				if (_comparator.Compare(Key, key) >= 0)
+			Log.Warn($"left value={left} from {_restartCount} restarts total, IsEOF={_reader.Length - _reader.Position}");
+			for (int i = left - 1; i >= 0; i--)
+			{
+				for (SeekToRestartPoint(i); HasNext(); Next())
 				{
-					return true;
+					if (_comparator.Compare(Key, key) >= 0)
+					{
+						Log.Warn($"Found key {Key.ToHexString()} with restart {i}");
+						for (SeekToRestartPoint(left); HasNext(); Next())
+						{
+							Log.Warn($"Restart {left}, Key: {Key.ToHexString()}");
+						}
+						for (SeekToRestartPoint(i); HasNext(); Next())
+						{
+							if (_comparator.Compare(Key, key) >= 0)
+							{
+								return true;
+							}
+						}
+					}
 				}
-			} while (TryParseCurrentEntry());
+			}
 
 			return false;
 		}
@@ -133,31 +150,37 @@ namespace MiNET.LevelDB
 			// Find offset from restart index
 			var offset = GetRestartPoint(restartIndex);
 			_reader.Position = (int) offset;
+			Key = null;
 			TryParseCurrentEntry();
 		}
 
 		private uint GetRestartPoint(int index)
 		{
-			if (index >= _restartCount) throw new IndexOutOfRangeException(nameof(index));
+			if (index > _restartCount - 1) throw new IndexOutOfRangeException(nameof(index) + $" can not be bigger than {_restartCount - 1}. Actual value {index}");
+			if (index < 0) throw new IndexOutOfRangeException(nameof(index) + $" can not be less than 0. Actual value {index}");
 
-			SpanReader stream = new SpanReader(_blockData);
-			stream.Seek(_restartOffset + index * sizeof(uint), SeekOrigin.Begin);
+			var stream = new SpanReader(_blockData);
+			stream.Seek(_restartOffset + (index * sizeof(uint)), SeekOrigin.Begin);
 			return stream.ReadUInt32();
 		}
 
 
 		private bool TryParseCurrentEntry()
 		{
-			if (_reader.Eof) return false;
+			if (_reader.Position >= _reader.Length - 4)
+			{
+				Key = null;
+				return false;
+			}
 
 			// An entry for a particular key-value pair has the form:
 			//     shared_bytes: varint32
-			var sharedBytes = _reader.ReadVarLong();
-			Debug.Assert(Key != null || sharedBytes == 0);
+			ulong sharedBytes = _reader.ReadVarLong();
+			if (Key == null && sharedBytes != 0) throw new Exception("Shared bytes, but no key");
 			//     unshared_bytes: varint32
-			var nonSharedBytes = _reader.ReadVarLong();
+			ulong nonSharedBytes = _reader.ReadVarLong();
 			//     value_length: varint32
-			var valueLength = _reader.ReadVarLong();
+			ulong valueLength = _reader.ReadVarLong();
 			//     key_delta: char[unshared_bytes]
 			ReadOnlySpan<byte> keyDelta = _reader.Read(nonSharedBytes);
 

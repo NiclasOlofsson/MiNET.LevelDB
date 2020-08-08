@@ -65,6 +65,7 @@ namespace MiNET.LevelDB
 		public ulong MaxNumberOfLogFiles { get; set; } = 4;
 		public ulong MaxTableFileSize { get; set; } = 2_000_000;
 		public ulong LevelSizeBaseFactor { get; set; } = 10; // the size increase factor between L and L+1 => n^level
+		public bool RetainAllFiles { get; set; } = false;
 	}
 
 	public class Database : IDatabase
@@ -283,18 +284,18 @@ namespace MiNET.LevelDB
 
 				// Append mode
 				_log = new LogWriter(logFile);
-
-				// We do this on startup. It will rotate the log files and create
-				// level 0 tables. However, we want to use into reusing the logs.
-				CompactMemCache(true);
-				CleanOldFiles();
-
-				_compactTimer = new Timer(state => DoCompaction(), null, 300, 300);
 			}
 			finally
 			{
 				_dbLock.ExitWriteLock();
 			}
+
+			// We do this on startup. It will rotate the log files and create
+			// level 0 tables. However, we want to use into reusing the logs.
+			CompactMemCache();
+			CleanOldFiles();
+
+			_compactTimer = new Timer(state => DoCompaction(), null, 300, 300);
 		}
 
 		public void Close()
@@ -310,18 +311,7 @@ namespace MiNET.LevelDB
 				_compactTimer.Dispose(timeFinishWaiter);
 				timeFinishWaiter.WaitOne();
 
-				if (_memCache != null)
-				{
-					var memCache = _memCache;
-					_memCache = null;
-
-					//if (_manifest != null)
-					//{
-					//	//TODO: Save of log should happen continuous (async) when doing Put() operations.
-					//	using var logWriter = new LogWriter(new FileInfo(Path.Combine(Directory.FullName, $"{(_manifest.CurrentVersion.LogNumber ?? 0):000000}.log")));
-					//	memCache.Write(logWriter);
-					//}
-				}
+				_memCache = null;
 				_log?.Close();
 				_log = null;
 				_manifest?.Close();
@@ -404,7 +394,7 @@ namespace MiNET.LevelDB
 
 				oldLog.Close();
 
-				_compactTask = new Task(() => CompactMemCache());
+				_compactTask = new Task(CompactMemCache);
 				_compactTask.Start();
 				// Schedule compact
 			}
@@ -412,15 +402,11 @@ namespace MiNET.LevelDB
 
 		private ManualResetEvent _compactReset = new ManualResetEvent(true);
 
-		private void CompactMemCache(bool force = false)
+		private void CompactMemCache()
 		{
 			Log.Debug($"Checking if we should compact");
 
-			bool shouldReleaseLock = !_dbLock.IsWriteLockHeld;
-			if (!_dbLock.IsWriteLockHeld)
-			{
-				_dbLock.EnterWriteLock();
-			}
+			_dbLock.EnterWriteLock();
 
 			try
 			{
@@ -440,6 +426,7 @@ namespace MiNET.LevelDB
 				var tableFileInfo = new FileInfo(GetTableFileName(newFileNumber));
 				FileMetadata meta = WriteLevel0Table(_immutableMemCache, tableFileInfo);
 				meta.FileNumber = newFileNumber;
+				Level0Tables.Add(meta);
 
 				// Update version data and commit new manifest (save)
 
@@ -469,13 +456,15 @@ namespace MiNET.LevelDB
 
 				_compactTask = null;
 				_compactReset.Set();
-				Task.Run(DoCompaction);
 			}
 			finally
 			{
-				if (shouldReleaseLock) _dbLock.ExitWriteLock();
+				_dbLock.ExitWriteLock();
 			}
 		}
+
+		public List<FileMetadata> Level0Tables { get; private set; } = new List<FileMetadata>();
+		public Version Version => _manifest.CurrentVersion;
 
 		internal FileMetadata WriteLevel0Table(MemCache memCache, FileInfo tableFileInfo)
 		{
@@ -503,15 +492,16 @@ namespace MiNET.LevelDB
 				//	if (entry.Value.ResultState == ResultState.Deleted)
 				//		Log.Warn($"Key:{key.ToHexString()} {entry.Value.Sequence}, {entry.Value.ResultState == ResultState.Exist}, size:{entry.Value.Data?.Length ?? 0}");
 				//	else
-				//		Log.Debug($"Key:{key.ToHexString()} Seq: {entry.Value.Sequence}, Exist: {entry.Value.ResultState == ResultState.Exist}");
+				//Log.Debug($"Key: {entry.Key.ToHexString()} FullKey:{key.ToHexString()} Seq: {entry.Value.Sequence}, Exist: {entry.Value.ResultState == ResultState.Exist}");
 				//}
 
 				creator.Add(key, data);
 			}
 
 			creator.Finish();
-			long fileSize = fileStream.Length;
+			fileStream.Flush();
 			fileStream.Close();
+			tableFileInfo.Refresh();
 
 			Log.Debug($"Size distinct:{memCache._resultCache.Distinct().Count()}");
 			Log.Debug($"Wrote {memCache._resultCache.Count} values to {tableFileInfo.Name}");
@@ -519,7 +509,7 @@ namespace MiNET.LevelDB
 			return new FileMetadata
 			{
 				FileNumber = 0, // Set in calling method
-				FileSize = (ulong) fileSize,
+				FileSize = (ulong) tableFileInfo.Length,
 				SmallestKey = smallestKey,
 				LargestKey = largestKey,
 				Table = new Table(tableFileInfo)
@@ -528,11 +518,7 @@ namespace MiNET.LevelDB
 
 		private void DoCompaction()
 		{
-			bool shouldReleaseLock = !_dbLock.IsWriteLockHeld;
-			if (!_dbLock.IsWriteLockHeld)
-			{
-				if (!_dbLock.TryEnterWriteLock(0)) return;
-			}
+			if (!_dbLock.TryEnterWriteLock(0)) return;
 
 			try
 			{
@@ -546,7 +532,7 @@ namespace MiNET.LevelDB
 			}
 			finally
 			{
-				if (shouldReleaseLock) _dbLock.ExitWriteLock();
+				_dbLock.ExitWriteLock();
 			}
 		}
 
@@ -561,9 +547,9 @@ namespace MiNET.LevelDB
 			}
 
 			Version version = _manifest.CurrentVersion;
-			List<FileMetadata> filesToCompact = version.GetFiles(0);
+			List<FileMetadata> level0FilesToCompact = version.GetFiles(0);
 
-			if (filesToCompact.Count <= (int) Options.MaxNumberOfLogFiles)
+			if (level0FilesToCompact.Count < (int) Options.MaxNumberOfLogFiles)
 			{
 				Log.Debug($"No level 0 to 1 compact needed at this time.");
 				return;
@@ -571,16 +557,15 @@ namespace MiNET.LevelDB
 
 			byte[] smallestKey = null;
 			byte[] largestKey = null;
-			foreach (FileMetadata metadata in filesToCompact.OrderBy(f => f.SmallestKey, new BytewiseComparator()))
+			foreach (FileMetadata metadata in level0FilesToCompact.OrderBy(f => f.SmallestKey, new InternalKeyComparator()))
 			{
 				smallestKey ??= metadata.SmallestKey;
 				largestKey = metadata.LargestKey;
 			}
-			//byte[] smallestKey = filesToCompact.OrderBy(f => f.SmallestKey, new BytewiseComparator()).FirstOrDefault()?.SmallestKey;
-			//byte[] largestKey = filesToCompact.OrderByDescending(f => f.LargestKey, new BytewiseComparator()).FirstOrDefault()?.LargestKey;
 
 			Log.Debug($"Smallest Key: {smallestKey.ToHexString()}, Largest Key: {largestKey.ToHexString()}");
 
+			var filesToCompact = new List<FileMetadata>(level0FilesToCompact);
 			// Add overlapping level 1 files
 			List<FileMetadata> overlappingFiles = version.GetOverlappingFiles(1, smallestKey, largestKey);
 			filesToCompact.AddRange(overlappingFiles);
@@ -604,6 +589,23 @@ namespace MiNET.LevelDB
 				FileMetadata newFileMeta = WriteMergedTable(version, mergeEnumerator, ref count);
 				if (newFileMeta.SmallestKey == null) break;
 				newFiles.Add(newFileMeta);
+			}
+
+			if (Log.IsDebugEnabled)
+			{
+				Log.Debug($"Compaction L0 * {level0FilesToCompact.Count} -> L1 * {newFiles.Count}");
+				foreach (FileMetadata file in level0FilesToCompact)
+				{
+					Log.Debug($"Compacted L0@{file.FileNumber}");
+				}
+				foreach (FileMetadata file in overlappingFiles)
+				{
+					Log.Debug($"Compacted L1@{file.FileNumber}");
+				}
+				foreach (FileMetadata newFile in newFiles)
+				{
+					Log.Debug($"Created L1@{newFile.FileNumber}");
+				}
 			}
 
 			var newVersion = new Version(version);
@@ -745,7 +747,7 @@ namespace MiNET.LevelDB
 
 		public FileMetadata GetNextFileToCompactForLevel(List<FileMetadata> files, byte[] lastCompactionKey)
 		{
-			var comparator = new BytewiseMemoryComparator();
+			var comparator = new InternalKeyComparator();
 
 			foreach (FileMetadata file in files)
 			{
@@ -757,16 +759,13 @@ namespace MiNET.LevelDB
 
 		private FileMetadata WriteMergedTable(Version version, MergeEnumerator mergeEnumerator, ref int count)
 		{
-			byte[] smallestKey;
-			byte[] largestKey;
 			var newFileMeta = new FileMetadata {FileNumber = version.GetNewFileNumber()};
 			var newFileInfo = new FileInfo(GetTableFileName(newFileMeta.FileNumber));
 			using FileStream newFileStream = newFileInfo.Create();
 			var creator = new TableCreator(newFileStream);
 
-			smallestKey = null;
-			largestKey = null;
-
+			byte[] smallestKey = null;
+			byte[] largestKey = null;
 
 			ReadOnlyMemory<byte> prevKey = null;
 			while (mergeEnumerator.MoveNext())
@@ -785,7 +784,6 @@ namespace MiNET.LevelDB
 				}
 
 				prevKey = key;
-				//Log.Debug($"{key.ToHexString()}");
 
 				creator.Add(key.Span, entry.Data.Span);
 				smallestKey ??= key.ToArray();
@@ -794,17 +792,20 @@ namespace MiNET.LevelDB
 				if (creator.CurrentSize > Options.MaxTableFileSize) break;
 			}
 
+			creator.Finish();
+
 			newFileMeta.SmallestKey = smallestKey;
 			newFileMeta.LargestKey = largestKey;
 			newFileInfo.Refresh();
 			newFileMeta.FileSize = (ulong) newFileInfo.Length;
 
-			creator.Finish();
 			return newFileMeta;
 		}
 
 		internal void CleanOldFiles()
 		{
+			if (Options.RetainAllFiles) return;
+
 			Directory.Refresh();
 			Version version = _manifest.CurrentVersion;
 

@@ -66,8 +66,11 @@ namespace MiNET.LevelDB
 		private void Flush()
 		{
 			byte[] lastKey = _blockCreator.LastKey;
-			var handle = WriteBlock(_stream, _blockCreator);
-			_blockIndexCreator.Add(lastKey, handle.Encode());
+			if (lastKey?.Length > 0)
+			{
+				BlockHandle handle = WriteBlock(_stream, _blockCreator);
+				_blockIndexCreator.Add(lastKey, handle.Encode());
+			}
 		}
 
 		public void Finish()
@@ -77,16 +80,17 @@ namespace MiNET.LevelDB
 			// writer filters block
 			// writer meta index block
 			//BlockHandle metaIndexHandle = WriteBlock(_stream, null); //TODO
-			BlockHandle metaIndexHandle = WriteBlock(_stream, _filterIndexCreator);
+			BlockHandle metaIndexHandle = WriteBlock(_stream, _filterIndexCreator, true);
 			// write block index
-			BlockHandle blockIndexHandle = WriteBlock(_stream, _blockIndexCreator);
+			BlockHandle blockIndexHandle = WriteBlock(_stream, _blockIndexCreator, true);
 
 			// write footer
 			var footer = new Footer(metaIndexHandle, blockIndexHandle);
 			footer.Write(_stream);
+			_stream.Flush();
 		}
 
-		private static BlockHandle WriteBlock(Stream stream, BlockCreator blockCreator)
+		private static BlockHandle WriteBlock(Stream stream, BlockCreator blockCreator, bool forceNoCompression = false)
 		{
 			byte[] dataBlock = blockCreator.Finish();
 			if (dataBlock.Length == 0) return null;
@@ -98,13 +102,17 @@ namespace MiNET.LevelDB
 			//byte compressionType = 2; // zlib
 			//memStream.WriteByte(0x87);
 			//memStream.WriteByte(0x9C);
-
-			byte compressionType = 4; // zlib raw
-			using var memStream = new MemoryStream();
-			using var compStream = new DeflateStream(memStream, CompressionLevel.Optimal);
-			compStream.Write(dataBlock);
-			compStream.Flush();
-			dataBlock = memStream.ToArray();
+			byte compressionType = 0; // none
+			if (!forceNoCompression!)
+			{
+				compressionType = 4; // zlib raw
+				using var memStream = new MemoryStream();
+				using var compStream = new DeflateStream(memStream, CompressionLevel.Fastest, true);
+				compStream.Write(dataBlock);
+				compStream.Flush();
+				compStream.Close();
+				dataBlock = memStream.ToArray();
+			}
 
 			uint checkCrc = Crc32C.Compute(dataBlock);
 			checkCrc = Crc32C.Mask(Crc32C.Append(checkCrc, compressionType));

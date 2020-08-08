@@ -48,8 +48,8 @@ namespace MiNET.LevelDB
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(BlockCreator));
 
-		private List<ulong> _restarts = new List<ulong>() {0};
-		private byte[] _lastKey = default;
+		private List<uint> _restarts = new List<uint>() {0};
+		private byte[] _lastKey = new byte[0];
 		private MemoryStream _stream = new MemoryStream();
 		private int _restartCounter = 0;
 
@@ -58,6 +58,9 @@ namespace MiNET.LevelDB
 
 		public void Add(ReadOnlySpan<byte> key, ReadOnlySpan<byte> data)
 		{
+			if (key == ReadOnlySpan<byte>.Empty || key == null || key.Length == 0) throw new ArgumentException("Empty key");
+			//if (key == ReadOnlySpan<byte>.Empty || key == null || key.Length == 0) return;
+
 			int sharedLen = 0;
 			if (_restartCounter < 16)
 			{
@@ -65,7 +68,7 @@ namespace MiNET.LevelDB
 			}
 			else
 			{
-				_restarts.Add((ulong) _stream.Position);
+				_restarts.Add((uint) _stream.Position);
 				_restartCounter = 0;
 			}
 
@@ -88,15 +91,13 @@ namespace MiNET.LevelDB
 		public byte[] Finish()
 		{
 			// Write uncompressed block
-			foreach (ulong restart in _restarts)
+			foreach (uint restart in _restarts)
 			{
-				_stream.Write(BitConverter.GetBytes((uint) restart));
+				_stream.Write(BitConverter.GetBytes(restart));
 			}
 
 			_stream.Write(BitConverter.GetBytes((uint) _restarts.Count));
 			byte[] result = _stream.ToArray();
-
-			//Log.Debug($"Wrote {_restarts.Count}");
 
 			// Reset
 			_stream.Position = 0;

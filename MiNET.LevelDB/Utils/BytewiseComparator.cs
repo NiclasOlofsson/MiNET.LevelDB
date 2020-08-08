@@ -41,13 +41,13 @@ namespace MiNET.LevelDB.Utils
 		{
 			if (a.Length == b.Length)
 			{
-				var result = a.SequenceCompareTo(b);
+				int result = a.SequenceCompareTo(b);
 				return result == 0 ? 0 : result > 0 ? 1 : -1;
 			}
 			else
 			{
-				var maxLen = Math.Min(a.Length, b.Length);
-				var result = a.Slice(0, maxLen).SequenceCompareTo(b.Slice(0, maxLen));
+				int maxLen = Math.Min(a.Length, b.Length);
+				int result = a.Slice(0, maxLen).SequenceCompareTo(b.Slice(0, maxLen));
 				if (result != 0) return result > 0 ? 1 : -1;
 
 				result = a.Length - b.Length;
@@ -61,22 +61,20 @@ namespace MiNET.LevelDB.Utils
 		}
 	}
 
-	public class BytewiseMemoryComparator : IComparer<ReadOnlyMemory<byte>>
+	public class InternalKeyComparator : IComparer<ReadOnlyMemory<byte>>, IComparer<byte[]>
 	{
-		private static readonly ILog Log = LogManager.GetLogger(typeof(BytewiseMemoryComparator));
+		private static readonly ILog Log = LogManager.GetLogger(typeof(InternalKeyComparator));
 
-		private readonly bool _userKeyOnly;
 		public string Name { get; } = "leveldb.BytewiseComparator";
 
-		public BytewiseMemoryComparator(bool userKeyOnly = false)
+		public InternalKeyComparator()
 		{
-			_userKeyOnly = userKeyOnly;
 		}
 
 		private int Compare(ReadOnlySpan<byte> ain, ReadOnlySpan<byte> bin)
 		{
-			ReadOnlySpan<byte> a = _userKeyOnly ? ain.UserKey() : ain;
-			ReadOnlySpan<byte> b = _userKeyOnly ? bin.UserKey() : bin;
+			ReadOnlySpan<byte> a = ain.UserKey();
+			ReadOnlySpan<byte> b = bin.UserKey();
 
 			if (a.Length == b.Length)
 			{
@@ -84,12 +82,11 @@ namespace MiNET.LevelDB.Utils
 				if (result == 0)
 				{
 					// Reverse order for sequence compare
-					return bin.SequenceNumber().CompareTo(ain.SequenceNumber());
+					result = bin.SequenceNumber().CompareTo(ain.SequenceNumber());
+					return result == 0 ? 0 : result > 0 ? 1 : -1;
 				}
-				else
-				{
-					return result > 0 ? 1 : -1;
-				}
+
+				return result > 0 ? 1 : -1;
 			}
 			else
 			{
@@ -105,6 +102,11 @@ namespace MiNET.LevelDB.Utils
 		public int Compare(ReadOnlyMemory<byte> x, ReadOnlyMemory<byte> y)
 		{
 			return Compare(x.Span, y.Span);
+		}
+
+		public int Compare(byte[] x, byte[] y)
+		{
+			return Compare(x.AsMemory(), y.AsMemory());
 		}
 	}
 }

@@ -31,8 +31,7 @@ namespace MiNET.LevelDB
 {
 	public class Footer
 	{
-		//public static readonly byte[] Magic = {0x57, 0xfb, 0x80, 0x8b, 0x24, 0x75, 0x47, 0xdb};
-		public static readonly ulong Magic = 0xdb4775248b80fb57;
+		public static readonly byte[] Magic = { 0x57, 0xfb, 0x80, 0x8b, 0x24, 0x75, 0x47, 0xdb };
 		public const int FooterLength = 48; // (10 + 10) * 2 + 8
 
 
@@ -68,8 +67,8 @@ namespace MiNET.LevelDB
 			var indexHandle = BlockHandle.ReadBlockHandle(ref reader);
 
 			reader.Seek(-sizeof(ulong), SeekOrigin.End);
-			var magic = reader.ReadUInt64();
-			if (Magic != magic)
+			ReadOnlySpan<byte> magic = reader.Read(8);
+			if (Magic.AsSpan().SequenceCompareTo(magic) != 0)
 			{
 				throw new Exception("Invalid footer. Magic end missing. This is not a proper table file");
 			}
@@ -79,13 +78,14 @@ namespace MiNET.LevelDB
 
 		public void Write(Stream stream)
 		{
-			long pos = stream.Position;
+			long footerStartPos = stream.Position;
 			stream.Write(MetaIndexBlockHandle.Encode());
 			stream.Write(BlockIndexBlockHandle.Encode());
-			long paddingLen = FooterLength - 8 - (stream.Position - pos);
+			long paddingLen = FooterLength - 8 - (stream.Position - footerStartPos);
 			stream.Write(new byte[paddingLen]); // padding
-			stream.Write(BitConverter.GetBytes(Magic));
-			//if (stream.Position - pos > FooterLength) throw new Exception($"Footer exceeded allowed size by {FooterLength - (stream.Position - pos)}. Padded with {paddingLen}");
+			stream.Write(Magic);
+			if (stream.Position - footerStartPos != FooterLength)
+				throw new Exception($"Footer exceeded allowed size by {FooterLength - (stream.Position - footerStartPos)}. Padded with {paddingLen}");
 		}
 	}
 }

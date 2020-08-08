@@ -48,6 +48,7 @@ namespace MiNET.LevelDB.Enumerate
 		public TableEnumerator(Table table)
 		{
 			_table = table;
+			if (!_table.Initialized) throw new Exception("Table has not been initialized");
 			_blockIndexEnum = new BlockEnumerator(table._blockIndex);
 
 			Reset();
@@ -109,6 +110,11 @@ namespace MiNET.LevelDB.Enumerate
 		IEnumerator IEnumerable.GetEnumerator()
 		{
 			return GetEnumerator();
+		}
+
+		public void TEST_Close()
+		{
+			_table.Dispose();
 		}
 	}
 }

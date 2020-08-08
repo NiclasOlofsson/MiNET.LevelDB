@@ -27,15 +27,18 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using log4net;
 using MiNET.LevelDB.Utils;
 
 namespace MiNET.LevelDB.Enumerate
 {
 	public class MergeEnumerator : IEnumerator<BlockEntry>, IEnumerable<BlockEntry>
 	{
+		private static readonly ILog Log = LogManager.GetLogger(typeof(MergeEnumerator));
+
 		private readonly List<TableEnumerator> _enumerators;
-		private BytewiseComparator _comparator = new BytewiseComparator();
 		private Dictionary<ReadOnlyMemory<byte>, BlockEntry> _currentEntries = new Dictionary<ReadOnlyMemory<byte>, BlockEntry>(new MemoryComparer());
+		private InternalKeyComparator _internalKeyComparator = new InternalKeyComparator();
 
 		public MergeEnumerator(List<TableEnumerator> enumerators)
 		{
@@ -46,7 +49,7 @@ namespace MiNET.LevelDB.Enumerate
 
 		public bool MoveNext()
 		{
-			var sorted = new SortedList<ReadOnlyMemory<byte>, BlockEntry>(_currentEntries, new BytewiseMemoryComparator(true));
+			var sorted = new SortedList<ReadOnlyMemory<byte>, BlockEntry>(_currentEntries, _internalKeyComparator);
 			if (sorted.Count == 0) return false;
 
 			ReadOnlyMemory<byte> first = sorted.Keys.First();
@@ -62,7 +65,7 @@ namespace MiNET.LevelDB.Enumerate
 		{
 			foreach (TableEnumerator enumerator in _enumerators)
 			{
-				if(enumerator.Current == null) continue;
+				if (enumerator.Current == null) continue;
 
 				if (enumerator.Current.Key.Equals(toReplace))
 				{
@@ -83,7 +86,7 @@ namespace MiNET.LevelDB.Enumerate
 			foreach (TableEnumerator enumerator in _enumerators)
 			{
 				enumerator.Reset();
-				_currentEntries[enumerator.Current.Key] = enumerator.Current;
+				if (enumerator.Current != null) _currentEntries[enumerator.Current.Key] = enumerator.Current;
 			}
 		}
 

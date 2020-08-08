@@ -66,14 +66,11 @@ namespace MiNET.LevelDB
 			{
 				foreach (FileMetadata tbl in level.Value)
 				{
-					if (Log.IsDebugEnabled) Log.Debug($"Found table file for key in level {level.Key} in file={tbl.FileNumber}");
-
 					Table tableReader = tbl.Table;
 					if (tableReader == null)
 					{
-						var f = new FileInfo(Path.Combine(_baseDirectory.FullName, $"{tbl.FileNumber:000000}.ldb"));
-						if (!f.Exists) throw new Exception($"Could not find table {f.FullName}");
-						tableReader = new Table(f);
+						tableReader = GetTable(tbl.FileNumber);
+						tableReader.Initialize();
 						tbl.Table = tableReader;
 					}
 				}
@@ -100,7 +97,6 @@ namespace MiNET.LevelDB
 					Log.Debug($"Checking table {tbl.FileNumber} for key: {key.ToHexString()}");
 					Span<byte> smallestKey = tbl.SmallestKey.AsSpan().UserKey();
 					Span<byte> largestKey = tbl.LargestKey.AsSpan().UserKey();
-					//if (smallestKey.Length == 0 || largestKey.Length == 0) continue;
 
 					if (_comparator.Compare(key, smallestKey) >= 0 && _comparator.Compare(key, largestKey) <= 0)
 					{
@@ -109,13 +105,12 @@ namespace MiNET.LevelDB
 						Table tableReader = tbl.Table;
 						if (tableReader == null)
 						{
-							var f = new FileInfo(Path.Combine(_baseDirectory.FullName, $"{tbl.FileNumber:000000}.ldb"));
-							if (!f.Exists) throw new Exception($"Could not find table {f.FullName}");
-							tableReader = new Table(f);
+							tableReader = GetTable(tbl.FileNumber);
+							tableReader.Initialize();
 							tbl.Table = tableReader;
 						}
 
-						var result = tableReader.Get(key);
+						ResultStatus result = tableReader.Get(key);
 						if (result.State == ResultState.Exist || result.State == ResultState.Deleted) return result;
 					}
 				}
@@ -128,9 +123,9 @@ namespace MiNET.LevelDB
 
 		internal Table GetTable(ulong fileNumber)
 		{
-			var f = new FileInfo(Path.Combine(_baseDirectory.FullName, $"{fileNumber:000000}.ldb"));
-			if (!f.Exists) throw new Exception($"Could not find table {f.FullName}");
-			var table = new Table(f);
+			var file = new FileInfo(Path.Combine(_baseDirectory.FullName, $"{fileNumber:000000}.ldb"));
+			if (!file.Exists) throw new Exception($"Could not find table {file.FullName}");
+			var table = new Table(file);
 			return table;
 		}
 
