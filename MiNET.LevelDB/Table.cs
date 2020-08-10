@@ -122,18 +122,23 @@ namespace MiNET.LevelDB
 
 		internal byte[] GetBlock(BlockHandle handle)
 		{
-			if (!_blockCache.TryGetValue(handle, out byte[] targetBlock))
+			lock (_blockCache)
 			{
-				targetBlock = handle.ReadBlock(_memFile);
-				AddBlockToCache(handle, targetBlock);
+				if (!_blockCache.TryGetValue(handle, out byte[] targetBlock))
+				{
+					targetBlock = handle.ReadBlock(_memFile);
+					AddBlockToCache(handle, targetBlock);
+				}
+				return targetBlock;
 			}
-
-			return targetBlock;
 		}
 
 		private void AddBlockToCache(BlockHandle handle, byte[] targetBlock)
 		{
-			_blockCache.Add(handle, targetBlock);
+			lock (_blockCache)
+			{
+				_blockCache.Add(handle, targetBlock);
+			}
 		}
 
 		private Dictionary<string, BlockHandle> GetFilters()

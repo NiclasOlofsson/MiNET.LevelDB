@@ -66,6 +66,7 @@ namespace MiNET.LevelDB
 		public ulong MaxTableFileSize { get; set; } = 2_000_000;
 		public ulong LevelSizeBaseFactor { get; set; } = 10; // the size increase factor between L and L+1 => n^level
 		public bool RetainAllFiles { get; set; } = false;
+		public bool ReadOnly { get; set; } = false;
 	}
 
 	public class Database : IDatabase
@@ -373,6 +374,8 @@ namespace MiNET.LevelDB
 
 		private void MakeSurePutWorks()
 		{
+			if (Options.ReadOnly) return;
+
 			if (!_dbLock.IsWriteLockHeld) throw new SynchronizationLockException("Expected caller to hold write lock");
 
 			if (_memCache.GetEstimatedSize() < Options.MaxMemCacheSize) return; // All fine, carry on
@@ -409,6 +412,8 @@ namespace MiNET.LevelDB
 
 		private void CompactMemCache()
 		{
+			if (Options.ReadOnly) return;
+
 			Log.Debug($"Checking if we should compact");
 
 			_dbLock.EnterWriteLock();
@@ -523,6 +528,8 @@ namespace MiNET.LevelDB
 
 		private void DoCompaction()
 		{
+			if (Options.ReadOnly) return;
+
 			if (!_dbLock.TryEnterWriteLock(0)) return;
 
 			try

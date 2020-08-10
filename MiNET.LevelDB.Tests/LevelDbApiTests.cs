@@ -28,7 +28,11 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using log4net;
+using log4net.Core;
+using log4net.Repository.Hierarchy;
 using MiNET.LevelDB.Utils;
 using NUnit.Framework;
 
@@ -184,76 +188,89 @@ namespace MiNET.LevelDB.Tests
 		public void BedrockChunkLoadTest()
 		{
 			int count = 0;
-			int countMissed = 0;
 			ulong totalSize = 0;
-			int numberOfChunks = 500; //10000;
-			var chunks = GenerateChunks(new ChunkCoordinates(0, 0), 8).OrderBy(kvp => kvp.Value).ToArray();
+			var chunks = GenerateChunks(new ChunkCoordinates(0, 0), 18).OrderBy(kvp => kvp.Value).ToArray();
+			int numberOfChunks = chunks.Length;
+			var hierarchy = (Hierarchy) LogManager.GetRepository(Assembly.GetEntryAssembly());
+			hierarchy.Root.Level = Level.Info;
 
-			using (var db = new Database(new DirectoryInfo("My World.mcworld")))
+			using var db = new Database(new DirectoryInfo("benchmark.mcworld"));
+			db.Open();
+
+			Assert.IsTrue(BitConverter.IsLittleEndian);
+
+			var sw = Stopwatch.StartNew();
+
+			while (count < numberOfChunks)
 			{
-				db.Open();
-
-				//Hierarchy hierarchy = (Hierarchy)LogManager.GetRepository(Assembly.GetEntryAssembly());
-				//hierarchy.Root.Level = Level.Info;
-
-				Assert.IsTrue(BitConverter.IsLittleEndian);
-
-				Stopwatch sw = new Stopwatch();
-				sw.Restart();
-
-				while (count < numberOfChunks)
+				foreach (var pair in chunks)
 				{
-					foreach (var pair in chunks)
+					if (count >= numberOfChunks) break;
+
+					ChunkCoordinates coordinates = pair.Key;
+
+					byte[] index = Combine(BitConverter.GetBytes(coordinates.X), BitConverter.GetBytes(coordinates.Z));
+
+					byte[] version = db.Get(Combine(index, 0x76));
+
+					byte[] chunkDataKey = Combine(index, new byte[] {0x2f, 0});
+					for (byte y = 0; y < 16; y++)
 					{
-						if (count >= numberOfChunks) break;
+						chunkDataKey[^1] = y;
+						byte[] chunk = db.Get(chunkDataKey);
 
-						var coordinates = pair.Key;
-
-						var index = BitConverter.GetBytes(coordinates.X).Concat(BitConverter.GetBytes(coordinates.Z)).ToArray();
-						var version = db.Get(index.Concat(new byte[] {0x76}).ToArray());
-
-						for (byte y = 0; y < 16; y++)
+						if (y == 0)
 						{
-							var chunk = db.Get(index.Concat(new byte[] {0x2f, y}).ToArray());
-
-							if (y == 0)
+							if (chunk != null)
 							{
-								if (chunk != null)
-								{
-									count++;
-									//Log.Debug($"Found chunk at coord={coordinates}");
-								}
-								else
-								{
-									countMissed++;
-									Assert.Fail("All chunks exist. Should not fail. This is a bug in Table.FindBlockHandleInBlockIndex()");
-									//Log.Debug($"Missing chunk at coord={coordinates}");
-								}
+								count++;
+								//Log.Debug($"Found chunk at coord={coordinates}");
 							}
-
-							if (chunk == null) break;
-
-							totalSize += (ulong) chunk.Length;
+							else
+							{
+								Assert.Fail("All chunks exist. Should not fail. This is a bug in Table.FindBlockHandleInBlockIndex()");
+							}
 						}
 
-						var flatDataBytes = db.Get(index.Concat(new byte[] {0x2D}).ToArray());
-						if (flatDataBytes != null)
-							totalSize += (ulong) flatDataBytes.Length;
-						var blockEntityBytes = db.Get(index.Concat(new byte[] {0x31}).ToArray());
-						if (blockEntityBytes != null)
-							totalSize += (ulong) blockEntityBytes.Length;
-					}
-				}
+						if (chunk == null) break;
 
-				var time = sw.ElapsedMilliseconds;
-				Log.Info($"Fetch {count} chunk columns in {time}ms");
-				Console.WriteLine($"Fetch {count} chunk columns in {time}ms. Total size={totalSize / 1000000}MB. Missing={countMissed}");
+						totalSize += (ulong) chunk.Length;
+					}
+
+					byte[] flatDataBytes = db.Get(Combine(index, 0x2D));
+					if (flatDataBytes != null) totalSize += (ulong) flatDataBytes.Length;
+					byte[] blockEntityBytes = db.Get(Combine(index, 0x31));
+					if (blockEntityBytes != null) totalSize += (ulong) blockEntityBytes.Length;
+				}
 			}
+
+			long time = sw.ElapsedMilliseconds;
+			Log.Info($"Fetch {count} chunk columns in {time}ms");
+			Console.WriteLine($"Fetch {count} chunk columns in {time}ms. Total size={totalSize / 1000000}MB.");
 		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		private static byte[] Combine(byte[] first, byte[] second)
+		{
+			var ret = new byte[first.Length + second.Length];
+			Buffer.BlockCopy(first, 0, ret, 0, first.Length);
+			Buffer.BlockCopy(second, 0, ret, first.Length, second.Length);
+			return ret;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		private static byte[] Combine(byte[] first, byte b)
+		{
+			var ret = new byte[first.Length + 1];
+			Buffer.BlockCopy(first, 0, ret, 0, first.Length);
+			ret[^1] = b;
+			return ret;
+		}
+
 
 		public Dictionary<ChunkCoordinates, double> GenerateChunks(ChunkCoordinates chunkPosition, double radius)
 		{
-			Dictionary<ChunkCoordinates, double> newOrders = new Dictionary<ChunkCoordinates, double>();
+			var newOrders = new Dictionary<ChunkCoordinates, double>();
 
 			double radiusSquared = Math.Pow(radius, 2);
 

@@ -145,6 +145,24 @@ namespace MiNET.LevelDB
 			return data;
 		}
 
+		protected bool Equals(BlockHandle other)
+		{
+			return Offset == other.Offset && Length == other.Length;
+		}
+
+		public override bool Equals(object obj)
+		{
+			if (ReferenceEquals(null, obj)) return false;
+			if (ReferenceEquals(this, obj)) return true;
+			if (obj.GetType() != this.GetType()) return false;
+			return Equals((BlockHandle) obj);
+		}
+
+		public override int GetHashCode()
+		{
+			return HashCode.Combine(Offset, Length);
+		}
+
 		public override string ToString()
 		{
 			return $"{nameof(Offset)}: {Offset}, {nameof(Length)}: {Length}";

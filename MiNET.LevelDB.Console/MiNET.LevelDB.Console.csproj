@@ -15,6 +15,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="log4net.xml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="My World.mcworld">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
