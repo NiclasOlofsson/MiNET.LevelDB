@@ -35,7 +35,7 @@ namespace MiNET.LevelDB
 	{
 		private static readonly ILog Log = LogManager.GetLogger(typeof(MemCache));
 
-		internal Dictionary<byte[], ResultCacheEntry> _resultCache = new Dictionary<byte[], ResultCacheEntry>();
+		internal Dictionary<byte[], ResultCacheEntry> _resultCache = new Dictionary<byte[], ResultCacheEntry>(new ByteArrayComparer());
 		private BytewiseComparator _comparator = new BytewiseComparator();
 		private ulong _estimatedSize = 0;
 
@@ -133,8 +133,6 @@ namespace MiNET.LevelDB
 			}
 			Log.Debug($"Total count of entries read: {entriesCount}");
 			Log.Debug($"Total count after filtering entries: {_resultCache.Count}");
-
-			_resultCache = _resultCache.OrderByDescending(kvp => kvp.Value.Sequence).ToDictionary(k => k.Key, k => k.Value);
 		}
 
 		private List<KeyValuePair<byte[], ResultCacheEntry>> DecodeBatch(ReadOnlySpan<byte> data)
@@ -180,12 +178,9 @@ namespace MiNET.LevelDB
 		{
 			if (_resultCache == null) throw new InvalidOperationException("Log not prepared for queries. Did you forget to call Open()?");
 
-			foreach (var entry in _resultCache.OrderByDescending(kvp => kvp.Value.Sequence))
+			if (_resultCache.TryGetValue(key.ToArray(), out ResultCacheEntry entry))
 			{
-				if (_comparator.Compare(key, entry.Key) == 0) // This compare on user-key
-				{
-					return new ResultStatus(entry.Value.ResultState, entry.Value.Data);
-				}
+				return new ResultStatus(entry.ResultState, entry.Data);
 			}
 
 			return ResultStatus.NotFound;

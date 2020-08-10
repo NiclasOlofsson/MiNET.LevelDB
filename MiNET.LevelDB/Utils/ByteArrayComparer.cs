@@ -42,9 +42,14 @@ namespace MiNET.LevelDB.Utils
 
 		public int GetHashCode(byte[] key)
 		{
-			if (key == null)
-				throw new ArgumentNullException("key");
-			return key.Sum(b => b);
+			if (key == null) throw new ArgumentNullException("key");
+
+			unchecked
+			{
+				int result = 0;
+				foreach (byte b in key) result = (result * 31) ^ b;
+				return result;
+			}
 		}
 	}
 

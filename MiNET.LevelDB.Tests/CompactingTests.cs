@@ -114,9 +114,7 @@ namespace MiNET.LevelDB.Tests
 				int count = 0;
 				foreach (byte[] key in keys)
 				{
-					//Assert.IsNotNull(db.Get(key), $"Missing key {key.ToHexString()} at idx:{count++}");
 					if (db.Get(key) == null) Log.Error($"Missing key {key.ToHexString()} at idx:{count++}");
-					//if (db.Get(key) != null) Log.Error($"Found key {key.ToHexString()} at idx:{count++}");
 				}
 
 				db.Close();

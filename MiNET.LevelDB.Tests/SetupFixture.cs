@@ -59,7 +59,8 @@ namespace MiNET.LevelDB.Tests
 				Directory.Delete(directory, true);
 			}
 
-			Directory.Delete(Path.Combine(Path.GetTempPath(), "My World.mcworld"), true);
+			string worldPath = Path.Combine(Path.GetTempPath(), "My World.mcworld");
+			if(Directory.Exists(worldPath)) Directory.Delete(worldPath, true);
 		}
 
 		[OneTimeTearDown]
