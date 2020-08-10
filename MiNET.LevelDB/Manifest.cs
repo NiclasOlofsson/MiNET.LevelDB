@@ -94,7 +94,7 @@ namespace MiNET.LevelDB
 			{
 				foreach (FileMetadata tbl in level.Value)
 				{
-					Log.Debug($"Checking table {tbl.FileNumber} for key: {key.ToHexString()}");
+					if (Log.IsDebugEnabled) Log.Debug($"Checking table {tbl.FileNumber} for key: {key.ToHexString()}");
 					Span<byte> smallestKey = tbl.SmallestKey.AsSpan().UserKey();
 					Span<byte> largestKey = tbl.LargestKey.AsSpan().UserKey();
 
@@ -116,7 +116,7 @@ namespace MiNET.LevelDB
 				}
 			}
 
-			Log.Debug($"Found no table for key: {key.ToHexString()}");
+			if (Log.IsDebugEnabled) Log.Debug($"Found no table for key: {key.ToHexString()}");
 
 			return ResultStatus.NotFound;
 		}

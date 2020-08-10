@@ -58,11 +58,8 @@ namespace MiNET.LevelDB.Enumerate
 		{
 			if (!_currentBlockEnum.MoveNext())
 			{
-				//Log.Debug($"Data block empty. Moving to next block.");
-
 				if (!_blockIndexEnum.MoveNext())
 				{
-					Log.Debug($"Block index empty");
 					return false;
 				}
 

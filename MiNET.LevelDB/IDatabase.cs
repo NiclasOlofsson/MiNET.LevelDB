@@ -304,12 +304,16 @@ namespace MiNET.LevelDB
 
 			_compactTask?.Wait();
 
-			_dbLock.EnterWriteLock();
+			_dbLock?.EnterWriteLock();
+			if (_dbLock == null) return;
 			try
 			{
-				var timeFinishWaiter = new ManualResetEvent(false);
-				_compactTimer.Dispose(timeFinishWaiter);
-				timeFinishWaiter.WaitOne();
+				if (_compactTimer != null)
+				{
+					var timeFinishWaiter = new ManualResetEvent(false);
+					_compactTimer.Dispose(timeFinishWaiter);
+					timeFinishWaiter.WaitOne();
+				}
 
 				_memCache = null;
 				_log?.Close();
@@ -319,9 +323,10 @@ namespace MiNET.LevelDB
 			}
 			finally
 			{
-				_dbLock.ExitWriteLock();
-				_dbLock?.Dispose();
+				var dbLock = _dbLock;
 				_dbLock = null;
+				dbLock.ExitWriteLock();
+				dbLock?.Dispose();
 			}
 		}
 

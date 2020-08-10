@@ -170,7 +170,7 @@ namespace MiNET.LevelDB
 			if (seeker.Seek(key))
 			{
 				Span<byte> foundKey = seeker.Key;
-				Log.Debug($"Found key in block index: {foundKey.ToHexString()}");
+				if (Log.IsDebugEnabled) Log.Debug($"Found key in block index: {foundKey.ToHexString()}");
 				if (_comparator.Compare(foundKey.UserKey(), key) >= 0)
 				{
 					ReadOnlySpan<byte> value = seeker.CurrentValue;
@@ -217,10 +217,6 @@ namespace MiNET.LevelDB
 						Log.Warn($"Found unknown key type: {keyType}");
 					}
 				}
-				//else
-				//{
-				//	Log.Warn($"Did not match search key: {key.ToHexString()} with {foundKey.ToHexString()}");
-				//}
 			}
 
 			return ResultStatus.NotFound;

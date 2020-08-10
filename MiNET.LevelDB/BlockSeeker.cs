@@ -114,26 +114,11 @@ namespace MiNET.LevelDB
 				if (_comparator.Compare(Key, key) >= 0) return true;
 			}
 
-			Log.Warn($"left value={left} from {_restartCount} restarts total, IsEOF={_reader.Length - _reader.Position}");
 			for (int i = left - 1; i >= 0; i--)
 			{
 				for (SeekToRestartPoint(i); HasNext(); Next())
 				{
-					if (_comparator.Compare(Key, key) >= 0)
-					{
-						Log.Warn($"Found key {Key.ToHexString()} with restart {i}");
-						for (SeekToRestartPoint(left); HasNext(); Next())
-						{
-							Log.Warn($"Restart {left}, Key: {Key.ToHexString()}");
-						}
-						for (SeekToRestartPoint(i); HasNext(); Next())
-						{
-							if (_comparator.Compare(Key, key) >= 0)
-							{
-								return true;
-							}
-						}
-					}
+					if (_comparator.Compare(Key, key) >= 0) return true;
 				}
 			}
 
