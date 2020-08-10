@@ -75,6 +75,9 @@ namespace MiNET.LevelDB
 					}
 				}
 			}
+
+			if (!"leveldb.BytewiseComparator".Equals(CurrentVersion.Comparator, StringComparison.InvariantCultureIgnoreCase))
+				throw new Exception($"Found record, but contains invalid or unsupported comparator: {CurrentVersion.Comparator}");
 		}
 
 		public void Save(LogWriter writer)
@@ -87,9 +90,6 @@ namespace MiNET.LevelDB
 
 		public ResultStatus Get(Span<byte> key)
 		{
-			if (!"leveldb.BytewiseComparator".Equals(CurrentVersion.Comparator, StringComparison.InvariantCultureIgnoreCase))
-				throw new Exception($"Found record, but contains invalid or unsupported comparator: {CurrentVersion.Comparator}");
-
 			foreach (var level in CurrentVersion.Levels) // Search all levels for file with matching index
 			{
 				foreach (FileMetadata tbl in level.Value)
