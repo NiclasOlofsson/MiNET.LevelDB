@@ -28,7 +28,7 @@
 
 	<ItemGroup>
 		<PackageReference Include="Crc32.NET" Version="1.2.0" />
-		<PackageReference Include="log4net" Version="2.0.8" />
+		<PackageReference Include="log4net" Version="2.0.10" />
 		<PackageReference Include="Maybe.NET" Version="1.0.123" />
 		<PackageReference Include="Newtonsoft.Json" Version="12.0.3" />
 	</ItemGroup>

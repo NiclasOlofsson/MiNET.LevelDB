@@ -10,7 +10,7 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="log4net" Version="2.0.8" />
+		<PackageReference Include="log4net" Version="2.0.10" />
 		<PackageReference Include="MiNET.fnbt" Version="1.0.22" />
 		<PackageReference Include="NUnit" Version="3.12.0" />
 		<PackageReference Include="NUnit3TestAdapter" Version="4.0.0-alpha.1" />
