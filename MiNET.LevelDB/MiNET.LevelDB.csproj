@@ -17,20 +17,38 @@
 		<PackageProjectUrl>https://github.com/NiclasOlofsson/MiNET.LevelDB</PackageProjectUrl>
 		<PackageIconUrl>https://secure.gravatar.com/avatar/2ba5d72bdad85108d14512c4d27ea550?s=128&amp;r=g&amp;d=retro</PackageIconUrl>
 		<PackageTags>MiNET MCPE Minecraft PocketEdition bedrock LevelDB</PackageTags>
-		<PackageLicenseUrl>https://raw.githubusercontent.com/NiclasOlofsson/MiNET.LevelDB/master/LICENSE</PackageLicenseUrl>
+		<!-- Use SPDX expression for standard licenses -->
+		<PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
 		<FileVersion>10.0.0.0</FileVersion>
 		<AssemblyVersion>10.0.0.0</AssemblyVersion>
 	</PropertyGroup>
 
+	<PropertyGroup Label="Package-SourceLink">
+		<!-- Publish the repository URL in the built .nupkg (in the NuSpec <Repository> element) -->
+		<PublishRepositoryUrl>true</PublishRepositoryUrl>
+		<!-- Embed source files that are not tracked by the source control manager in the PDB -->
+		<EmbedUntrackedSources>true</EmbedUntrackedSources>
+		<!-- Recommended: Embed symbols containing Source Link in the main file (exe/dll) -->
+		<DebugType>embedded</DebugType>
+	</PropertyGroup>
+
+	<!-- *** NOTE: Also enable when building the project to be published as a NuGet package *** -->
+	<PropertyGroup Label="Package-ReproducibleBuild" Condition="'$(GITHUB_ACTIONS)' == 'true'">
+		<!-- when building via Github Actions, set CI Build to true to enable reproducible builds -->
+		<ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+	</PropertyGroup>
+
 	<ItemGroup>
-		<None Include="..\LICENSE" Pack="true" PackagePath="$(PackageLicenseFile)" />
+		<PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All"/>
 	</ItemGroup>
 
 	<ItemGroup>
+		<!-- Used in core library -->
 		<PackageReference Include="Crc32.NET" Version="1.2.0" />
 		<PackageReference Include="log4net" Version="2.0.8" />
-		<PackageReference Include="Maybe.NET" Version="1.0.123" />
 		<PackageReference Include="Newtonsoft.Json" Version="12.0.3" />
+		<!-- Does not appear to be used? -->
+		<!-- <PackageReference Include="Maybe.NET" Version="1.0.123" /> -->
 	</ItemGroup>
 
 
