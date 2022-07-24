@@ -1,10 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFramework>netcoreapp3.1</TargetFramework>
-		<ApplicationIcon />
+		<TargetFrameworks>net6.0;netstandard2.1</TargetFrameworks>
+		<ApplicationIcon/>
 		<OutputType>Library</OutputType>
-		<StartupObject />
+		<StartupObject/>
 		<LangVersion>latest</LangVersion>
 
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -23,14 +23,14 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<None Include="..\LICENSE" Pack="true" PackagePath="$(PackageLicenseFile)" />
+		<None Include="..\LICENSE" Pack="true" PackagePath="$(PackageLicenseFile)"/>
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Crc32.NET" Version="1.2.0" />
-		<PackageReference Include="log4net" Version="2.0.8" />
-		<PackageReference Include="Maybe.NET" Version="1.0.123" />
-		<PackageReference Include="Newtonsoft.Json" Version="12.0.3" />
+		<PackageReference Include="Crc32.NET" Version="1.2.0"/>
+		<PackageReference Include="log4net" Version="2.0.8"/>
+		<PackageReference Include="Maybe.NET" Version="1.0.123"/>
+		<PackageReference Include="Newtonsoft.Json" Version="12.0.3"/>
 	</ItemGroup>
 
 

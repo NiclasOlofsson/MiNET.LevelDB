@@ -1,8 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFramework>netcoreapp3.1</TargetFramework>
-
+		<TargetFrameworks>net6.0;netstandard2.1</TargetFrameworks>
 		<IsPackable>false</IsPackable>
 
 		<LangVersion>latest</LangVersion>
@@ -10,45 +9,45 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="log4net" Version="2.0.8" />
+		<PackageReference Include="log4net" Version="2.0.8"/>
 		<PackageReference Include="MiNET.fnbt" Version="1.0.22" />
-		<PackageReference Include="NUnit" Version="3.12.0" />
-		<PackageReference Include="NUnit3TestAdapter" Version="4.0.0-alpha.1" />
-		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="16.7.0-preview-20200519-01" />
+		<PackageReference Include="NUnit" Version="3.12.0"/>
+		<PackageReference Include="NUnit3TestAdapter" Version="4.0.0-alpha.1"/>
+		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="16.7.0-preview-20200519-01"/>
 	</ItemGroup>
 
 	<ItemGroup>
-	  <ProjectReference Include="..\MiNET.LevelDB\MiNET.LevelDB.csproj" />
+		<ProjectReference Include="..\MiNET.LevelDB\MiNET.LevelDB.csproj"/>
 	</ItemGroup>
 
 	<ItemGroup>
-	  <None Update="benchmark.mcworld">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </None>
-	  <None Update="log4net.xml">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </None>
-	  <None Update="My World.mcworld">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </None>
-	  <None Update="TestWorld\000047.log">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </None>
-	  <None Update="TestWorld\000049.ldb">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </None>
-	  <None Update="TestWorld\000050.ldb">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </None>
-	  <None Update="TestWorld\CURRENT">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </None>
-	  <None Update="TestWorld\LOCK">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </None>
-	  <None Update="TestWorld\MANIFEST-000045">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </None>
+		<None Update="benchmark.mcworld">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="log4net.xml">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="My World.mcworld">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="TestWorld\000047.log">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="TestWorld\000049.ldb">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="TestWorld\000050.ldb">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="TestWorld\CURRENT">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="TestWorld\LOCK">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="TestWorld\MANIFEST-000045">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
 	</ItemGroup>
 
 </Project>
